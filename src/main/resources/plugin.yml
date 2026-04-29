@@ -1,5 +1,5 @@
 name: SummitCustomArmor
-version: '${version}'
+version: '${project.version}'
 main: gg.summit.customarmor.SummitCustomArmor
 api-version: '1.21'
 description: Custom armor items for Summit servers.
@@ -22,3 +22,6 @@ permissions:
   customarmor.reload:
     description: Allows use of /ca reload.
     default: op
+  customarmor.check:
+    description: Allows use of /ca check.
+    default: true

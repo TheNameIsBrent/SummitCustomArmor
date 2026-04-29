@@ -37,6 +37,7 @@ public class CustomArmorCommand implements CommandExecutor, TabCompleter {
         switch (args[0].toLowerCase()) {
             case "give"   -> handleGive(sender, args);
             case "reload" -> handleReload(sender);
+            case "check"  -> handleCheck(sender);
             default       -> sendUsage(sender);
         }
         return true;
@@ -96,6 +97,21 @@ public class CustomArmorCommand implements CommandExecutor, TabCompleter {
     }
 
     // -------------------------------------------------------------------------
+    // /ca check
+    // -------------------------------------------------------------------------
+    private void handleCheck(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(Component.text("Only players can use this command.", NamedTextColor.RED));
+            return;
+        }
+
+        int count = armorManager.countPieces(player);
+        player.sendMessage(Component.text(
+                "You are wearing " + count + " CustomArmor piece" + (count == 1 ? "" : "s") + ".",
+                NamedTextColor.AQUA));
+    }
+
+    // -------------------------------------------------------------------------
     // /ca reload
     // -------------------------------------------------------------------------
     private void handleReload(CommandSender sender) {
@@ -117,7 +133,7 @@ public class CustomArmorCommand implements CommandExecutor, TabCompleter {
         List<String> completions = new ArrayList<>();
 
         if (args.length == 1) {
-            completions.addAll(List.of("give", "reload"));
+            completions.addAll(List.of("give", "reload", "check"));
         } else if (args.length == 2 && args[0].equalsIgnoreCase("give")) {
             completions.addAll(ArmorManager.PIECES);
         } else if (args.length == 3 && args[0].equalsIgnoreCase("give")) {
@@ -133,6 +149,6 @@ public class CustomArmorCommand implements CommandExecutor, TabCompleter {
     // Helpers
     // -------------------------------------------------------------------------
     private void sendUsage(CommandSender sender) {
-        sender.sendMessage(Component.text("Usage: /ca <give|reload>", NamedTextColor.YELLOW));
+        sender.sendMessage(Component.text("Usage: /ca <give|reload|check>", NamedTextColor.YELLOW));
     }
 }
