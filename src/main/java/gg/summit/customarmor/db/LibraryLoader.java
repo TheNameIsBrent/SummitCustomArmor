@@ -7,7 +7,6 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.nio.channels.Channels;
 
 /**
  * Downloads HikariCP and the MariaDB JDBC driver from Maven Central on first run,
@@ -62,7 +61,7 @@ public class LibraryLoader {
         URL url = new URL(urlStr);
         try (InputStream in = url.openStream();
              FileOutputStream out = new FileOutputStream(dest)) {
-            Channels.newChannel(in).transferTo(0, Long.MAX_VALUE, Channels.newChannel(out));
+            in.transferTo(out);
         }
     }
 
