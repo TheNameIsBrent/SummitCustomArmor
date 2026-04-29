@@ -1,0 +1,24 @@
+name: SummitCustomArmor
+version: '${project.version}'
+main: gg.summit.customarmor.SummitCustomArmor
+api-version: '1.21'
+description: Custom armor items for Summit servers.
+authors: [ Summit ]
+
+commands:
+  ca:
+    description: Main CustomArmor command.
+    usage: /ca <give|reload>
+    aliases: [ customarmor ]
+    permission: customarmor.use
+
+permissions:
+  customarmor.use:
+    description: Allows use of /ca command.
+    default: op
+  customarmor.give:
+    description: Allows use of /ca give.
+    default: op
+  customarmor.reload:
+    description: Allows use of /ca reload.
+    default: op

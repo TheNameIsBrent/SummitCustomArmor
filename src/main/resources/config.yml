@@ -1,0 +1,14 @@
+# Summit CustomArmor Configuration
+
+armor:
+  chestplate:
+    name: "&bKey Finder Chestplate"
+    material: DIAMOND_CHESTPLATE
+
+  leggings:
+    name: "&bKey Finder Leggings"
+    material: DIAMOND_LEGGINGS
+
+  boots:
+    name: "&bKey Finder Boots"
+    material: DIAMOND_BOOTS
