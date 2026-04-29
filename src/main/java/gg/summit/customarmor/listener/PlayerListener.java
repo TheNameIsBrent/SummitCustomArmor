@@ -20,16 +20,15 @@ public class PlayerListener implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
 
-        plugin.getDatabaseManager()
+        plugin.getStorage()
               .loadPlayer(player.getUniqueId())
               .thenRun(() ->
-                  // Back onto the main thread to mutate inventory safely
                   plugin.getServer().getScheduler().runTask(plugin, () ->
                       plugin.getLevelManager().syncItemsFromCache(player)
                   )
               )
               .exceptionally(ex -> {
-                  plugin.getLogger().severe("[DB] Load failed for "
+                  plugin.getLogger().severe("[Storage] Load failed for "
                           + player.getName() + ": " + ex.getMessage());
                   return null;
               });
@@ -38,14 +37,12 @@ public class PlayerListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
-
-        // Sync PDC → cache before saving
         plugin.getLevelManager().syncCacheFromItems(player);
 
-        plugin.getDatabaseManager()
+        plugin.getStorage()
               .savePlayer(player.getUniqueId(), true)
               .exceptionally(ex -> {
-                  plugin.getLogger().severe("[DB] Save failed for "
+                  plugin.getLogger().severe("[Storage] Save failed for "
                           + player.getName() + ": " + ex.getMessage());
                   return null;
               });

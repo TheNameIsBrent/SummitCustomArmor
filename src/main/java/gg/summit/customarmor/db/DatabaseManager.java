@@ -8,17 +8,16 @@ import java.lang.reflect.Constructor;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
-public class DatabaseManager {
+public class DatabaseManager implements StorageBackend {
 
     private final SummitCustomArmor plugin;
     private final PlayerDataCache cache;
     private final ClassLoader libLoader;
 
-    private AutoCloseable dataSource;  // HikariDataSource — held as Object to avoid compile-time dep
+    private AutoCloseable dataSource;
     private DataSource sqlDataSource;
 
     private static final String CREATE_TABLE = """
@@ -44,33 +43,29 @@ public class DatabaseManager {
         this.libLoader = libLoader;
     }
 
-    // -------------------------------------------------------------------------
-    // Lifecycle
-    // -------------------------------------------------------------------------
-
+    @Override
     public void connect() throws Exception {
         ConfigurationSection db = plugin.getConfig().getConfigurationSection("database");
-        if (db == null) throw new SQLException("Missing 'database' section in config.yml");
+        if (db == null) throw new Exception("Missing 'database' section in config.yml");
 
         String jdbcUrl = "jdbc:mariadb://"
                 + db.getString("host", "localhost") + ":"
                 + db.getInt("port", 3306) + "/"
                 + db.getString("database", "summit_customarmor");
 
-        // Reflectively build HikariConfig and HikariDataSource using the lib classloader
         Class<?> hikariConfigClass = libLoader.loadClass("com.zaxxer.hikari.HikariConfig");
         Object hikariConfig = hikariConfigClass.getDeclaredConstructor().newInstance();
 
-        set(hikariConfig, "setJdbcUrl",         jdbcUrl);
-        set(hikariConfig, "setUsername",         db.getString("username", "root"));
-        set(hikariConfig, "setPassword",         db.getString("password", ""));
-        set(hikariConfig, "setDriverClassName",  "org.mariadb.jdbc.Driver");
-        setInt(hikariConfig, "setMaximumPoolSize",  10);
-        setInt(hikariConfig, "setMinimumIdle",       2);
+        set(hikariConfig,  "setJdbcUrl",          jdbcUrl);
+        set(hikariConfig,  "setUsername",          db.getString("username", "root"));
+        set(hikariConfig,  "setPassword",          db.getString("password", ""));
+        set(hikariConfig,  "setDriverClassName",   "org.mariadb.jdbc.Driver");
+        setInt(hikariConfig,  "setMaximumPoolSize", 10);
+        setInt(hikariConfig,  "setMinimumIdle",      2);
         setLong(hikariConfig, "setConnectionTimeout", 10_000L);
         setLong(hikariConfig, "setIdleTimeout",      600_000L);
         setLong(hikariConfig, "setMaxLifetime",    1_800_000L);
-        set(hikariConfig, "setPoolName", "SummitCustomArmor");
+        set(hikariConfig,  "setPoolName", "SummitCustomArmor");
 
         Class<?> hikariDsClass = libLoader.loadClass("com.zaxxer.hikari.HikariDataSource");
         Constructor<?> ctor = hikariDsClass.getConstructor(hikariConfigClass);
@@ -79,26 +74,23 @@ public class DatabaseManager {
         dataSource    = (AutoCloseable) ds;
         sqlDataSource = (DataSource) ds;
 
-        // Create table — safe on startup
         try (Connection conn = sqlDataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(CREATE_TABLE)) {
             stmt.execute();
         }
 
-        plugin.getLogger().info("[DB] Connected to MariaDB.");
+        plugin.getLogger().info("[Storage] Connected to MariaDB.");
     }
 
+    @Override
     public void disconnect() {
         if (dataSource != null) {
             try { dataSource.close(); } catch (Exception ignored) {}
-            plugin.getLogger().info("[DB] Connection pool closed.");
+            plugin.getLogger().info("[Storage] MariaDB connection pool closed.");
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Async operations
-    // -------------------------------------------------------------------------
-
+    @Override
     public CompletableFuture<Void> loadPlayer(UUID uuid) {
         return CompletableFuture.runAsync(() -> {
             try (Connection conn = sqlDataSource.getConnection();
@@ -110,13 +102,13 @@ public class DatabaseManager {
                     cache.put(uuid, rs.getString("piece"),
                             new ArmorData(rs.getInt("level"), rs.getInt("xp")));
                 }
-
             } catch (Exception e) {
-                plugin.getLogger().severe("[DB] Load failed for " + uuid + ": " + e.getMessage());
+                plugin.getLogger().severe("[Storage] Load failed for " + uuid + ": " + e.getMessage());
             }
         });
     }
 
+    @Override
     public CompletableFuture<Void> savePlayer(UUID uuid, boolean evictAfter) {
         String[] pieces = {"chestplate", "leggings", "boots"};
         return CompletableFuture.runAsync(() -> {
@@ -132,31 +124,25 @@ public class DatabaseManager {
                     stmt.addBatch();
                 }
                 stmt.executeBatch();
-
             } catch (Exception e) {
-                plugin.getLogger().severe("[DB] Save failed for " + uuid + ": " + e.getMessage());
+                plugin.getLogger().severe("[Storage] Save failed for " + uuid + ": " + e.getMessage());
             }
             if (evictAfter) cache.remove(uuid);
         });
     }
 
+    @Override
     public void saveAll() {
         plugin.getServer().getOnlinePlayers()
               .forEach(p -> savePlayer(p.getUniqueId(), false));
     }
 
-    // -------------------------------------------------------------------------
-    // Reflection helpers
-    // -------------------------------------------------------------------------
-
     private void set(Object obj, String method, String value) throws Exception {
         obj.getClass().getMethod(method, String.class).invoke(obj, value);
     }
-
     private void setInt(Object obj, String method, int value) throws Exception {
         obj.getClass().getMethod(method, int.class).invoke(obj, value);
     }
-
     private void setLong(Object obj, String method, long value) throws Exception {
         obj.getClass().getMethod(method, long.class).invoke(obj, value);
     }

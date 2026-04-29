@@ -1,5 +1,8 @@
 # Summit CustomArmor Configuration
 
+# Storage backend: 'yaml' (default, no setup required) or 'mariadb'
+storage-type: yaml
+
 database:
   host: localhost
   port: 3306
