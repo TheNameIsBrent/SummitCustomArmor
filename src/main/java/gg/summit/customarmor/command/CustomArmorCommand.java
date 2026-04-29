@@ -1,6 +1,7 @@
 package gg.summit.customarmor.command;
 
 import gg.summit.customarmor.ArmorManager;
+import gg.summit.customarmor.ProcManager;
 import gg.summit.customarmor.SummitCustomArmor;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -20,10 +21,12 @@ public class CustomArmorCommand implements CommandExecutor, TabCompleter {
 
     private final SummitCustomArmor plugin;
     private final ArmorManager armorManager;
+    private final ProcManager procManager;
 
     public CustomArmorCommand(SummitCustomArmor plugin, ArmorManager armorManager) {
         this.plugin = plugin;
         this.armorManager = armorManager;
+        this.procManager = plugin.getProcManager();
     }
 
     @Override
@@ -106,9 +109,21 @@ public class CustomArmorCommand implements CommandExecutor, TabCompleter {
         }
 
         int count = armorManager.countPieces(player);
-        player.sendMessage(Component.text(
-                "You are wearing " + count + " CustomArmor piece" + (count == 1 ? "" : "s") + ".",
-                NamedTextColor.AQUA));
+
+        if (count == 0) {
+            player.sendMessage(Component.text("You are not wearing any CustomArmor pieces.", NamedTextColor.AQUA));
+            return;
+        }
+
+        double chance   = procManager.calculateChance(count);
+        double bonus    = procManager.getSetBonus(count);
+        String pct      = String.format("%.1f%%", chance * 100);
+        String bonusFmt = String.format("%.2fx", bonus);
+
+        player.sendMessage(Component.text("--- CustomArmor Debug ---", NamedTextColor.GOLD));
+        player.sendMessage(Component.text("Pieces worn:  " + count + " / 3", NamedTextColor.AQUA));
+        player.sendMessage(Component.text("Set bonus:    " + bonusFmt, NamedTextColor.AQUA));
+        player.sendMessage(Component.text("Proc chance:  " + pct, NamedTextColor.AQUA));
     }
 
     // -------------------------------------------------------------------------

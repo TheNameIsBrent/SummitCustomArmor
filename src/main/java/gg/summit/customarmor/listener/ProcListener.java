@@ -4,6 +4,7 @@ import gg.summit.customarmor.ProcManager;
 import org.bukkit.Material;
 import org.bukkit.Tag;
 import org.bukkit.block.Block;
+import org.bukkit.block.data.Ageable;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -15,10 +16,11 @@ import java.util.Set;
 
 public class ProcListener implements Listener {
 
+    // Only trigger on fully-grown crops to avoid rewarding half-grown harvests
     private static final Set<Material> CROP_MATERIALS = Set.of(
             Material.WHEAT,
-            Material.CARROTS,
-            Material.POTATOES,
+            Material.CARROTS,      // block is CARROTS at any age
+            Material.POTATOES,     // block is POTATOES at any age
             Material.BEETROOTS,
             Material.NETHER_WART,
             Material.COCOA,
@@ -31,23 +33,33 @@ public class ProcListener implements Listener {
         this.procManager = procManager;
     }
 
-    /** Handles both mining and crop harvesting (both come through BlockBreakEvent). */
+    /** Handles mining and fully-grown crop harvesting. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBlockBreak(BlockBreakEvent event) {
         Player player = event.getPlayer();
-        Block block = event.getBlock();
+        Block block   = event.getBlock();
+        Material type = block.getType();
 
-        boolean isMining = Tag.MINEABLE_PICKAXE.isTagged(block.getType())
-                        || Tag.MINEABLE_AXE.isTagged(block.getType())
-                        || Tag.MINEABLE_SHOVEL.isTagged(block.getType());
-        boolean isCrop = CROP_MATERIALS.contains(block.getType());
+        boolean isMining = Tag.MINEABLE_PICKAXE.isTagged(type)
+                        || Tag.MINEABLE_AXE.isTagged(type)
+                        || Tag.MINEABLE_SHOVEL.isTagged(type);
+
+        boolean isCrop = false;
+        if (CROP_MATERIALS.contains(type)) {
+            // Only count fully-grown crops (max age)
+            if (block.getBlockData() instanceof Ageable ageable) {
+                isCrop = ageable.getAge() == ageable.getMaximumAge();
+            } else {
+                isCrop = true; // COCOA, SWEET_BERRY_BUSH etc. handled as-is
+            }
+        }
 
         if (!isMining && !isCrop) return;
 
         procManager.tryProc(player);
     }
 
-    /** Handles fishing — fires when a player successfully catches something. */
+    /** Fires when a player successfully catches a fish. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onFish(PlayerFishEvent event) {
         if (event.getState() != PlayerFishEvent.State.CAUGHT_FISH) return;

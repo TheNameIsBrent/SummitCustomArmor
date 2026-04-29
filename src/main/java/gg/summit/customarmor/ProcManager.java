@@ -24,7 +24,15 @@ public class ProcManager {
         if (pieces == 0) return false;
 
         double chance = calculateChance(pieces);
-        if (random.nextDouble() > chance) return false;
+        double roll   = random.nextDouble();
+
+        plugin.getLogger().info("[Proc] " + player.getName()
+                + " | pieces=" + pieces
+                + " | chance=" + String.format("%.4f", chance)
+                + " | roll=" + String.format("%.4f", roll)
+                + " | fired=" + (roll <= chance));
+
+        if (roll > chance) return false;
 
         executeReward(player);
         return true;
@@ -38,15 +46,22 @@ public class ProcManager {
         double maxChance  = plugin.getConfig().getDouble("proc.max-chance", 0.15);
         double setBonus   = plugin.getConfig().getDouble("proc.set-bonus." + pieces, 1.0);
 
-        double finalChance = Math.min(maxChance, (pieces * baseChance) * setBonus);
-        return finalChance;
+        return Math.min(maxChance, (pieces * baseChance) * setBonus);
+    }
+
+    public double getSetBonus(int pieces) {
+        return plugin.getConfig().getDouble("proc.set-bonus." + pieces, 1.0);
     }
 
     private void executeReward(Player player) {
         String command = plugin.getConfig().getString("proc.command", "");
-        if (command.isBlank()) return;
+        if (command.isBlank()) {
+            plugin.getLogger().warning("[Proc] Command is blank — check config.yml proc.command!");
+            return;
+        }
 
         String resolved = command.replace("%player%", player.getName());
+        plugin.getLogger().info("[Proc] Executing: " + resolved);
         plugin.getServer().dispatchCommand(plugin.getServer().getConsoleSender(), resolved);
     }
 }
