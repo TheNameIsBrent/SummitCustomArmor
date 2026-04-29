@@ -22,7 +22,7 @@ public final class SummitCustomArmor extends JavaPlugin {
         getCommand("ca").setExecutor(handler);
         getCommand("ca").setTabCompleter(handler);
 
-        getServer().getPluginManager().registerEvents(new ProcListener(procManager), this);
+        getServer().getPluginManager().registerEvents(new ProcListener(procManager, this), this);
 
         getLogger().info("SummitCustomArmor enabled.");
     }

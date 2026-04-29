@@ -1,6 +1,7 @@
 package gg.summit.customarmor.listener;
 
 import gg.summit.customarmor.ProcManager;
+import gg.summit.customarmor.SummitCustomArmor;
 import org.bukkit.Material;
 import org.bukkit.Tag;
 import org.bukkit.block.Block;
@@ -16,11 +17,10 @@ import java.util.Set;
 
 public class ProcListener implements Listener {
 
-    // Only trigger on fully-grown crops to avoid rewarding half-grown harvests
     private static final Set<Material> CROP_MATERIALS = Set.of(
             Material.WHEAT,
-            Material.CARROTS,      // block is CARROTS at any age
-            Material.POTATOES,     // block is POTATOES at any age
+            Material.CARROTS,
+            Material.POTATOES,
             Material.BEETROOTS,
             Material.NETHER_WART,
             Material.COCOA,
@@ -28,12 +28,14 @@ public class ProcListener implements Listener {
     );
 
     private final ProcManager procManager;
+    private final SummitCustomArmor plugin;
 
-    public ProcListener(ProcManager procManager) {
+    public ProcListener(ProcManager procManager, SummitCustomArmor plugin) {
         this.procManager = procManager;
+        this.plugin = plugin;
     }
 
-    /** Handles mining and fully-grown crop harvesting. */
+    /** Handles mining and crop harvesting via left-click (BlockBreakEvent). */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBlockBreak(BlockBreakEvent event) {
         Player player = event.getPlayer();
@@ -46,11 +48,16 @@ public class ProcListener implements Listener {
 
         boolean isCrop = false;
         if (CROP_MATERIALS.contains(type)) {
-            // Only count fully-grown crops (max age)
             if (block.getBlockData() instanceof Ageable ageable) {
-                isCrop = ageable.getAge() == ageable.getMaximumAge();
+                int age = ageable.getAge();
+                int max = ageable.getMaximumAge();
+                plugin.getLogger().info("[Crop] " + player.getName()
+                        + " broke " + type + " age=" + age + "/" + max);
+                isCrop = age == max;
             } else {
-                isCrop = true; // COCOA, SWEET_BERRY_BUSH etc. handled as-is
+                plugin.getLogger().info("[Crop] " + player.getName()
+                        + " broke " + type + " (no age data)");
+                isCrop = true;
             }
         }
 
