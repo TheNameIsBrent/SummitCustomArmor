@@ -15,27 +15,40 @@ proc:
   increase-per-level: 0.002   # Additional chance per level on each piece
   max-total-chance: 0.15      # Hard cap on final chance
   set-bonus:
-    1: 1.0                # 1 piece worn multiplier
-    2: 1.1                # 2 pieces worn multiplier
-    3: 1.25               # 3 pieces worn multiplier
+    1: 1.0
+    2: 1.1
+    3: 1.25
 
   keys:
     common:
       chance: 75
+      display-name: "&eCommon Key"
+      message: "&eYou found a &eCommon Key&e!"
       commands:
         - "crate give %player% crate_lost physical 1"
     rare:
       chance: 25
+      display-name: "&bRare Key"
+      message: "&bYou found a &bRare Key&b!"
       commands:
         - "crate give %player% crate_explorer physical 1"
     epic:
       chance: 0
+      display-name: "&5Epic Key"
+      message: "&5You found an &5Epic Key&5!"
       commands:
         - "crate give %player% crate_mystic physical 1"
     legendary:
       chance: 0
+      display-name: "&6Legendary Key"
+      message: "&6You found a &6Legendary Key&6!"
       commands:
         - "crate give %player% crate_legendary physical 1"
+
+messages:
+  equip-1: "&7You equipped &b1/3 &7Key Finder pieces."
+  equip-2: "&aYou equipped &b2/3 &aKey Finder pieces! Bonus active."
+  equip-3: "&6Full set! All &b3/3 &6Key Finder pieces equipped!"
 
 armor:
   chestplate:
