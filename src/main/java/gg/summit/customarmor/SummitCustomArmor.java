@@ -8,7 +8,8 @@ public final class SummitCustomArmor extends JavaPlugin {
 
     private static SummitCustomArmor instance;
     private ArmorManager armorManager;
-    private ProcManager procManager;
+    private LevelManager levelManager;
+    private ProcManager  procManager;
 
     @Override
     public void onEnable() {
@@ -16,13 +17,17 @@ public final class SummitCustomArmor extends JavaPlugin {
         saveDefaultConfig();
 
         armorManager = new ArmorManager(this);
+        levelManager = new LevelManager(this, armorManager);
         procManager  = new ProcManager(this, armorManager);
+
+        // Give ArmorManager access to LevelManager for lore on buildItem
+        armorManager.setLevelManager(levelManager);
 
         CustomArmorCommand handler = new CustomArmorCommand(this, armorManager);
         getCommand("ca").setExecutor(handler);
         getCommand("ca").setTabCompleter(handler);
 
-        getServer().getPluginManager().registerEvents(new ProcListener(procManager, this), this);
+        getServer().getPluginManager().registerEvents(new ProcListener(procManager, levelManager, this), this);
 
         getLogger().info("SummitCustomArmor enabled.");
     }
@@ -34,5 +39,6 @@ public final class SummitCustomArmor extends JavaPlugin {
 
     public static SummitCustomArmor getInstance() { return instance; }
     public ArmorManager getArmorManager()         { return armorManager; }
-    public ProcManager getProcManager()           { return procManager; }
+    public LevelManager getLevelManager()         { return levelManager; }
+    public ProcManager  getProcManager()          { return procManager; }
 }

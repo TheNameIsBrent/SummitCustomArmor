@@ -38,3 +38,13 @@ armor:
   boots:
     name: "&bKey Finder Boots"
     material: DIAMOND_BOOTS
+
+leveling:
+  max-level: 25
+  base-xp: 100
+  xp-scaling: 1.5
+
+  xp-gain:
+    mining: 1
+    farming: 1
+    fishing: 2
