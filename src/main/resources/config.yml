@@ -1,5 +1,14 @@
 # Summit CustomArmor Configuration
 
+proc:
+  base-chance: 0.02       # Chance added per piece worn
+  max-chance: 0.15        # Hard cap on final chance
+  set-bonus:
+    1: 1.0                # 1 piece worn multiplier
+    2: 1.1                # 2 pieces worn multiplier
+    3: 1.25               # 3 pieces worn multiplier
+  command: "crate give %player% crate_lost physical 1"
+
 armor:
   chestplate:
     name: "&bKey Finder Chestplate"

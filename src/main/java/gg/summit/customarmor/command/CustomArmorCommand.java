@@ -21,9 +21,9 @@ public class CustomArmorCommand implements CommandExecutor, TabCompleter {
     private final SummitCustomArmor plugin;
     private final ArmorManager armorManager;
 
-    public CustomArmorCommand(SummitCustomArmor plugin) {
+    public CustomArmorCommand(SummitCustomArmor plugin, ArmorManager armorManager) {
         this.plugin = plugin;
-        this.armorManager = new ArmorManager(plugin);
+        this.armorManager = armorManager;
     }
 
     @Override
