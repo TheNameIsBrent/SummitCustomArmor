@@ -1,7 +1,10 @@
 package gg.summit.customarmor;
 
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 
 public class ProcManager {
@@ -53,15 +56,56 @@ public class ProcManager {
         return plugin.getConfig().getDouble("proc.set-bonus." + pieces, 1.0);
     }
 
+    /**
+     * Selects a key tier via weighted random, then executes its commands.
+     * Tiers with chance 0 are excluded entirely.
+     * Chances are normalized if they don't sum to 100.
+     */
     private void executeReward(Player player) {
-        String command = plugin.getConfig().getString("proc.command", "");
-        if (command.isBlank()) {
-            plugin.getLogger().warning("[Proc] Command is blank — check config.yml proc.command!");
+        ConfigurationSection keysSection = plugin.getConfig().getConfigurationSection("proc.keys");
+        if (keysSection == null) {
+            plugin.getLogger().warning("[Proc] No keys section found in config.yml!");
             return;
         }
 
-        String resolved = command.replace("%player%", player.getName());
-        plugin.getLogger().info("[Proc] Executing: " + resolved);
-        plugin.getServer().dispatchCommand(plugin.getServer().getConsoleSender(), resolved);
+        // Build a list of eligible tiers (chance > 0)
+        List<String> tiers = new ArrayList<>();
+        List<Double> weights = new ArrayList<>();
+        double totalWeight = 0;
+
+        for (String tier : keysSection.getKeys(false)) {
+            double chance = keysSection.getDouble(tier + ".chance", 0);
+            if (chance <= 0) continue;
+            tiers.add(tier);
+            weights.add(chance);
+            totalWeight += chance;
+        }
+
+        if (tiers.isEmpty()) {
+            plugin.getLogger().warning("[Proc] All key tiers have 0 chance — nothing to give!");
+            return;
+        }
+
+        // Weighted random selection (normalizes automatically)
+        double roll = random.nextDouble() * totalWeight;
+        String selected = tiers.get(tiers.size() - 1); // fallback to last
+        double cumulative = 0;
+        for (int i = 0; i < tiers.size(); i++) {
+            cumulative += weights.get(i);
+            if (roll < cumulative) {
+                selected = tiers.get(i);
+                break;
+            }
+        }
+
+        plugin.getLogger().info("[Proc] Selected key tier: " + selected + " for " + player.getName());
+
+        // Execute all commands for the selected tier
+        List<String> commands = keysSection.getStringList(selected + ".commands");
+        for (String command : commands) {
+            String resolved = command.replace("%player%", player.getName());
+            plugin.getLogger().info("[Proc] Executing: " + resolved);
+            plugin.getServer().dispatchCommand(plugin.getServer().getConsoleSender(), resolved);
+        }
     }
 }

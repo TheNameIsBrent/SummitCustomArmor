@@ -7,7 +7,24 @@ proc:
     1: 1.0                # 1 piece worn multiplier
     2: 1.1                # 2 pieces worn multiplier
     3: 1.25               # 3 pieces worn multiplier
-  command: "crate give %player% crate_lost physical 1"
+
+  keys:
+    common:
+      chance: 75
+      commands:
+        - "crate give %player% crate_lost physical 1"
+    rare:
+      chance: 25
+      commands:
+        - "crate give %player% crate_explorer physical 1"
+    epic:
+      chance: 0
+      commands:
+        - "crate give %player% crate_mystic physical 1"
+    legendary:
+      chance: 0
+      commands:
+        - "crate give %player% crate_legendary physical 1"
 
 armor:
   chestplate:
