@@ -1,10 +1,19 @@
 package gg.summit.customarmor;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+import org.bukkit.Color;
+import org.bukkit.Location;
+import org.bukkit.Particle;
+import org.bukkit.Sound;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 public class ProcManager {
@@ -12,6 +21,9 @@ public class ProcManager {
     private final SummitCustomArmor plugin;
     private final ArmorManager armorManager;
     private final Random random = new Random();
+
+    // Sound played when the player is wearing all 3 pieces (full set)
+    private static final Sound FULL_SET_SOUND = Sound.BLOCK_BEACON_ACTIVATE;
 
     public ProcManager(SummitCustomArmor plugin, ArmorManager armorManager) {
         this.plugin = plugin;
@@ -25,6 +37,11 @@ public class ProcManager {
     public boolean tryProc(Player player) {
         int pieces = armorManager.countPieces(player);
         if (pieces == 0) return false;
+
+        // Play full-set sound if all 3 pieces are worn
+        if (pieces == 3) {
+            player.playSound(player.getLocation(), FULL_SET_SOUND, 0.6f, 1.2f);
+        }
 
         double chance = calculateChance(player);
         double roll   = random.nextDouble();
@@ -43,16 +60,15 @@ public class ProcManager {
 
     /**
      * finalChance = min(maxChance, sum(base + level * increasePerLevel) * setBonus)
-     * Each worn piece contributes independently based on its own level.
      */
     public double calculateChance(Player player) {
         List<org.bukkit.inventory.ItemStack> worn = armorManager.getWornPieces(player);
         if (worn.isEmpty()) return 0;
 
-        double basePer      = plugin.getConfig().getDouble("proc.base-per-piece", 0.02);
+        double basePer        = plugin.getConfig().getDouble("proc.base-per-piece", 0.02);
         double increasePerLvl = plugin.getConfig().getDouble("proc.increase-per-level", 0.002);
-        double maxChance    = plugin.getConfig().getDouble("proc.max-total-chance", 0.15);
-        double setBonus     = getSetBonus(worn.size());
+        double maxChance      = plugin.getConfig().getDouble("proc.max-total-chance", 0.15);
+        double setBonus       = getSetBonus(worn.size());
 
         LevelManager levelManager = plugin.getLevelManager();
         double sum = 0;
@@ -64,11 +80,11 @@ public class ProcManager {
         return Math.min(maxChance, sum * setBonus);
     }
 
-    /** Kept for use by /ca check — calculates chance for a given piece count at level 1. */
+    /** Flat chance estimate for /ca check display (level 1 baseline). */
     public double calculateChance(int pieces) {
-        double basePer     = plugin.getConfig().getDouble("proc.base-per-piece", 0.02);
-        double maxChance   = plugin.getConfig().getDouble("proc.max-total-chance", 0.15);
-        double setBonus    = getSetBonus(pieces);
+        double basePer   = plugin.getConfig().getDouble("proc.base-per-piece", 0.02);
+        double maxChance = plugin.getConfig().getDouble("proc.max-total-chance", 0.15);
+        double setBonus  = getSetBonus(pieces);
         return Math.min(maxChance, (pieces * basePer) * setBonus);
     }
 
@@ -76,11 +92,10 @@ public class ProcManager {
         return plugin.getConfig().getDouble("proc.set-bonus." + pieces, 1.0);
     }
 
-    /**
-     * Selects a key tier via weighted random, then executes its commands.
-     * Tiers with chance 0 are excluded entirely.
-     * Chances are normalized if they don't sum to 100.
-     */
+    // -------------------------------------------------------------------------
+    // Reward execution
+    // -------------------------------------------------------------------------
+
     private void executeReward(Player player) {
         ConfigurationSection keysSection = plugin.getConfig().getConfigurationSection("proc.keys");
         if (keysSection == null) {
@@ -88,17 +103,17 @@ public class ProcManager {
             return;
         }
 
-        // Build a list of eligible tiers (chance > 0)
+        // Weighted tier selection
         List<String> tiers = new ArrayList<>();
         List<Double> weights = new ArrayList<>();
         double totalWeight = 0;
 
         for (String tier : keysSection.getKeys(false)) {
-            double chance = keysSection.getDouble(tier + ".chance", 0);
-            if (chance <= 0) continue;
+            double w = keysSection.getDouble(tier + ".chance", 0);
+            if (w <= 0) continue;
             tiers.add(tier);
-            weights.add(chance);
-            totalWeight += chance;
+            weights.add(w);
+            totalWeight += w;
         }
 
         if (tiers.isEmpty()) {
@@ -106,26 +121,61 @@ public class ProcManager {
             return;
         }
 
-        // Weighted random selection (normalizes automatically)
         double roll = random.nextDouble() * totalWeight;
-        String selected = tiers.get(tiers.size() - 1); // fallback to last
+        String selected = tiers.get(tiers.size() - 1);
         double cumulative = 0;
         for (int i = 0; i < tiers.size(); i++) {
             cumulative += weights.get(i);
-            if (roll < cumulative) {
-                selected = tiers.get(i);
-                break;
-            }
+            if (roll < cumulative) { selected = tiers.get(i); break; }
         }
 
         plugin.getLogger().info("[Proc] Selected key tier: " + selected + " for " + player.getName());
 
-        // Execute all commands for the selected tier
+        // Action bar message
+        String tierDisplay = capitalize(selected);
+        Component actionBar = Component.text("✦ You found a " + tierDisplay + " Key! ✦",
+                tierColor(selected)).decoration(TextDecoration.BOLD, true);
+        player.sendActionBar(actionBar);
+
+        // Sound on proc
+        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.5f);
+
+        // Particle burst at player location
+        spawnProcParticles(player, selected);
+
+        // Execute commands
         List<String> commands = keysSection.getStringList(selected + ".commands");
         for (String command : commands) {
             String resolved = command.replace("%player%", player.getName());
             plugin.getLogger().info("[Proc] Executing: " + resolved);
             plugin.getServer().dispatchCommand(plugin.getServer().getConsoleSender(), resolved);
         }
+    }
+
+    private void spawnProcParticles(Player player, String tier) {
+        Location loc = player.getLocation().add(0, 1, 0);
+        Color color = switch (tier) {
+            case "rare"      -> Color.AQUA;
+            case "epic"      -> Color.PURPLE;
+            case "legendary" -> Color.ORANGE;
+            default          -> Color.YELLOW; // common
+        };
+
+        Particle.DustOptions dust = new Particle.DustOptions(color, 1.5f);
+        player.getWorld().spawnParticle(Particle.DUST, loc, 30, 0.4, 0.6, 0.4, 0, dust);
+    }
+
+    private NamedTextColor tierColor(String tier) {
+        return switch (tier) {
+            case "rare"      -> NamedTextColor.AQUA;
+            case "epic"      -> NamedTextColor.LIGHT_PURPLE;
+            case "legendary" -> NamedTextColor.GOLD;
+            default          -> NamedTextColor.YELLOW;
+        };
+    }
+
+    private String capitalize(String s) {
+        if (s == null || s.isEmpty()) return s;
+        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
 }

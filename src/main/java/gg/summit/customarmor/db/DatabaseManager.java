@@ -1,10 +1,10 @@
 package gg.summit.customarmor.db;
 
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
 import gg.summit.customarmor.SummitCustomArmor;
 import org.bukkit.configuration.ConfigurationSection;
 
+import javax.sql.DataSource;
+import java.lang.reflect.Constructor;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -16,12 +16,15 @@ public class DatabaseManager {
 
     private final SummitCustomArmor plugin;
     private final PlayerDataCache cache;
-    private HikariDataSource dataSource;
+    private final ClassLoader libLoader;
+
+    private AutoCloseable dataSource;  // HikariDataSource — held as Object to avoid compile-time dep
+    private DataSource sqlDataSource;
 
     private static final String CREATE_TABLE = """
             CREATE TABLE IF NOT EXISTS custom_armor_data (
-                id   INT AUTO_INCREMENT PRIMARY KEY,
-                uuid VARCHAR(36)  NOT NULL,
+                id    INT AUTO_INCREMENT PRIMARY KEY,
+                uuid  VARCHAR(36) NOT NULL,
                 piece VARCHAR(16) NOT NULL,
                 level INT         NOT NULL,
                 xp    DOUBLE      NOT NULL,
@@ -35,39 +38,49 @@ public class DatabaseManager {
     private static final String SELECT_PLAYER =
             "SELECT piece, level, xp FROM custom_armor_data WHERE uuid = ?";
 
-    public DatabaseManager(SummitCustomArmor plugin, PlayerDataCache cache) {
-        this.plugin = plugin;
-        this.cache  = cache;
+    public DatabaseManager(SummitCustomArmor plugin, PlayerDataCache cache, ClassLoader libLoader) {
+        this.plugin    = plugin;
+        this.cache     = cache;
+        this.libLoader = libLoader;
     }
 
     // -------------------------------------------------------------------------
     // Lifecycle
     // -------------------------------------------------------------------------
 
-    /** Initialises the connection pool and creates the table. Throws on failure. */
-    public void connect() throws SQLException {
+    public void connect() throws Exception {
         ConfigurationSection db = plugin.getConfig().getConfigurationSection("database");
         if (db == null) throw new SQLException("Missing 'database' section in config.yml");
 
-        HikariConfig config = new HikariConfig();
-        config.setJdbcUrl("jdbc:mariadb://" + db.getString("host", "localhost")
-                + ":" + db.getInt("port", 3306)
-                + "/" + db.getString("database", "summit_customarmor"));
-        config.setUsername(db.getString("username", "root"));
-        config.setPassword(db.getString("password", ""));
-        config.setDriverClassName("org.mariadb.jdbc.Driver");
+        String jdbcUrl = "jdbc:mariadb://"
+                + db.getString("host", "localhost") + ":"
+                + db.getInt("port", 3306) + "/"
+                + db.getString("database", "summit_customarmor");
 
-        config.setMaximumPoolSize(10);
-        config.setMinimumIdle(2);
-        config.setConnectionTimeout(10_000);
-        config.setIdleTimeout(600_000);
-        config.setMaxLifetime(1_800_000);
-        config.setPoolName("SummitCustomArmor");
+        // Reflectively build HikariConfig and HikariDataSource using the lib classloader
+        Class<?> hikariConfigClass = libLoader.loadClass("com.zaxxer.hikari.HikariConfig");
+        Object hikariConfig = hikariConfigClass.getDeclaredConstructor().newInstance();
 
-        dataSource = new HikariDataSource(config);
+        set(hikariConfig, "setJdbcUrl",         jdbcUrl);
+        set(hikariConfig, "setUsername",         db.getString("username", "root"));
+        set(hikariConfig, "setPassword",         db.getString("password", ""));
+        set(hikariConfig, "setDriverClassName",  "org.mariadb.jdbc.Driver");
+        setInt(hikariConfig, "setMaximumPoolSize",  10);
+        setInt(hikariConfig, "setMinimumIdle",       2);
+        setLong(hikariConfig, "setConnectionTimeout", 10_000L);
+        setLong(hikariConfig, "setIdleTimeout",      600_000L);
+        setLong(hikariConfig, "setMaxLifetime",    1_800_000L);
+        set(hikariConfig, "setPoolName", "SummitCustomArmor");
 
-        // Create table synchronously on startup — safe here, not during gameplay
-        try (Connection conn = dataSource.getConnection();
+        Class<?> hikariDsClass = libLoader.loadClass("com.zaxxer.hikari.HikariDataSource");
+        Constructor<?> ctor = hikariDsClass.getConstructor(hikariConfigClass);
+        Object ds = ctor.newInstance(hikariConfig);
+
+        dataSource    = (AutoCloseable) ds;
+        sqlDataSource = (DataSource) ds;
+
+        // Create table — safe on startup
+        try (Connection conn = sqlDataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(CREATE_TABLE)) {
             stmt.execute();
         }
@@ -76,8 +89,8 @@ public class DatabaseManager {
     }
 
     public void disconnect() {
-        if (dataSource != null && !dataSource.isClosed()) {
-            dataSource.close();
+        if (dataSource != null) {
+            try { dataSource.close(); } catch (Exception ignored) {}
             plugin.getLogger().info("[DB] Connection pool closed.");
         }
     }
@@ -86,42 +99,28 @@ public class DatabaseManager {
     // Async operations
     // -------------------------------------------------------------------------
 
-    /**
-     * Loads all armor pieces for a player from the DB into the cache.
-     * Called async on join. Populates defaults if no row exists.
-     */
     public CompletableFuture<Void> loadPlayer(UUID uuid) {
         return CompletableFuture.runAsync(() -> {
-            try (Connection conn = dataSource.getConnection();
+            try (Connection conn = sqlDataSource.getConnection();
                  PreparedStatement stmt = conn.prepareStatement(SELECT_PLAYER)) {
 
                 stmt.setString(1, uuid.toString());
                 ResultSet rs = stmt.executeQuery();
-
                 while (rs.next()) {
-                    String piece = rs.getString("piece");
-                    int    level = rs.getInt("level");
-                    int    xp    = rs.getInt("xp");
-                    cache.put(uuid, piece, new ArmorData(level, xp));
+                    cache.put(uuid, rs.getString("piece"),
+                            new ArmorData(rs.getInt("level"), rs.getInt("xp")));
                 }
 
-            } catch (SQLException e) {
-                plugin.getLogger().severe("[DB] Failed to load player " + uuid + ": " + e.getMessage());
+            } catch (Exception e) {
+                plugin.getLogger().severe("[DB] Load failed for " + uuid + ": " + e.getMessage());
             }
         });
     }
 
-    /**
-     * Saves all cached armor data for a player to the DB.
-     * Called async on quit and by the periodic save task.
-     */
     public CompletableFuture<Void> savePlayer(UUID uuid, boolean evictAfter) {
-        // Snapshot the pieces to save — do this on whatever thread calls savePlayer.
-        // The pieces array is fixed; ArmorData fields are volatile so reads are safe.
         String[] pieces = {"chestplate", "leggings", "boots"};
-
         return CompletableFuture.runAsync(() -> {
-            try (Connection conn = dataSource.getConnection();
+            try (Connection conn = sqlDataSource.getConnection();
                  PreparedStatement stmt = conn.prepareStatement(UPSERT)) {
 
                 for (String piece : pieces) {
@@ -132,22 +131,33 @@ public class DatabaseManager {
                     stmt.setDouble(4, data.getXp());
                     stmt.addBatch();
                 }
-
                 stmt.executeBatch();
 
-            } catch (SQLException e) {
-                plugin.getLogger().severe("[DB] Failed to save player " + uuid + ": " + e.getMessage());
+            } catch (Exception e) {
+                plugin.getLogger().severe("[DB] Save failed for " + uuid + ": " + e.getMessage());
             }
-
             if (evictAfter) cache.remove(uuid);
         });
     }
 
-    /**
-     * Saves all online players asynchronously (periodic task).
-     */
     public void saveAll() {
-        plugin.getServer().getOnlinePlayers().forEach(p ->
-                savePlayer(p.getUniqueId(), false));
+        plugin.getServer().getOnlinePlayers()
+              .forEach(p -> savePlayer(p.getUniqueId(), false));
+    }
+
+    // -------------------------------------------------------------------------
+    // Reflection helpers
+    // -------------------------------------------------------------------------
+
+    private void set(Object obj, String method, String value) throws Exception {
+        obj.getClass().getMethod(method, String.class).invoke(obj, value);
+    }
+
+    private void setInt(Object obj, String method, int value) throws Exception {
+        obj.getClass().getMethod(method, int.class).invoke(obj, value);
+    }
+
+    private void setLong(Object obj, String method, long value) throws Exception {
+        obj.getClass().getMethod(method, long.class).invoke(obj, value);
     }
 }
