@@ -115,7 +115,7 @@ public class CustomArmorCommand implements CommandExecutor, TabCompleter {
             return;
         }
 
-        double chance   = procManager.calculateChance(count);
+        double chance   = procManager.calculateChance(player);
         double bonus    = procManager.getSetBonus(count);
         String pct      = String.format("%.1f%%", chance * 100);
         String bonusFmt = String.format("%.2fx", bonus);

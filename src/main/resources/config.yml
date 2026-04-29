@@ -1,8 +1,9 @@
 # Summit CustomArmor Configuration
 
 proc:
-  base-chance: 0.02       # Chance added per piece worn
-  max-chance: 0.15        # Hard cap on final chance
+  base-per-piece: 0.02        # Base chance contributed by each worn piece
+  increase-per-level: 0.002   # Additional chance per level on each piece
+  max-total-chance: 0.15      # Hard cap on final chance
   set-bonus:
     1: 1.0                # 1 piece worn multiplier
     2: 1.1                # 2 pieces worn multiplier

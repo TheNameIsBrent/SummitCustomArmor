@@ -26,7 +26,7 @@ public class ProcManager {
         int pieces = armorManager.countPieces(player);
         if (pieces == 0) return false;
 
-        double chance = calculateChance(pieces);
+        double chance = calculateChance(player);
         double roll   = random.nextDouble();
 
         plugin.getLogger().info("[Proc] " + player.getName()
@@ -42,14 +42,34 @@ public class ProcManager {
     }
 
     /**
-     * finalChance = min(maxChance, (pieces * baseChance) * setBonus)
+     * finalChance = min(maxChance, sum(base + level * increasePerLevel) * setBonus)
+     * Each worn piece contributes independently based on its own level.
      */
-    public double calculateChance(int pieces) {
-        double baseChance = plugin.getConfig().getDouble("proc.base-chance", 0.02);
-        double maxChance  = plugin.getConfig().getDouble("proc.max-chance", 0.15);
-        double setBonus   = plugin.getConfig().getDouble("proc.set-bonus." + pieces, 1.0);
+    public double calculateChance(Player player) {
+        List<org.bukkit.inventory.ItemStack> worn = armorManager.getWornPieces(player);
+        if (worn.isEmpty()) return 0;
 
-        return Math.min(maxChance, (pieces * baseChance) * setBonus);
+        double basePer      = plugin.getConfig().getDouble("proc.base-per-piece", 0.02);
+        double increasePerLvl = plugin.getConfig().getDouble("proc.increase-per-level", 0.002);
+        double maxChance    = plugin.getConfig().getDouble("proc.max-total-chance", 0.15);
+        double setBonus     = getSetBonus(worn.size());
+
+        LevelManager levelManager = plugin.getLevelManager();
+        double sum = 0;
+        for (org.bukkit.inventory.ItemStack piece : worn) {
+            int level = levelManager.getLevel(piece);
+            sum += basePer + (level * increasePerLvl);
+        }
+
+        return Math.min(maxChance, sum * setBonus);
+    }
+
+    /** Kept for use by /ca check — calculates chance for a given piece count at level 1. */
+    public double calculateChance(int pieces) {
+        double basePer     = plugin.getConfig().getDouble("proc.base-per-piece", 0.02);
+        double maxChance   = plugin.getConfig().getDouble("proc.max-total-chance", 0.15);
+        double setBonus    = getSetBonus(pieces);
+        return Math.min(maxChance, (pieces * basePer) * setBonus);
     }
 
     public double getSetBonus(int pieces) {
