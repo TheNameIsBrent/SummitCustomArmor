@@ -1,5 +1,5 @@
 name: SummitCustomArmor
-version: '${project.version}'
+version: '${version}'
 main: gg.summit.customarmor.SummitCustomArmor
 api-version: '1.21'
 description: Custom armor items for Summit servers.
