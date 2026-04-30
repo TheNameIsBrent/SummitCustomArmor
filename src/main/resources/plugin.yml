@@ -25,3 +25,6 @@ permissions:
   customarmor.check:
     description: Allows use of /ca check.
     default: true
+  customarmor.givescroll:
+    description: Allows use of /ca givescroll.
+    default: op

@@ -38,10 +38,11 @@ public class CustomArmorCommand implements CommandExecutor, TabCompleter {
         }
 
         switch (args[0].toLowerCase()) {
-            case "give"   -> handleGive(sender, args);
-            case "reload" -> handleReload(sender);
-            case "check"  -> handleCheck(sender);
-            default       -> sendUsage(sender);
+            case "give"       -> handleGive(sender, args);
+            case "reload"     -> handleReload(sender);
+            case "check"      -> handleCheck(sender);
+            case "givescroll" -> handleGiveScroll(sender, args);
+            default           -> sendUsage(sender);
         }
         return true;
     }
@@ -146,6 +147,38 @@ public class CustomArmorCommand implements CommandExecutor, TabCompleter {
     }
 
     // -------------------------------------------------------------------------
+    // /ca givescroll [player]
+    // -------------------------------------------------------------------------
+    private void handleGiveScroll(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("customarmor.givescroll")) {
+            sender.sendMessage(Component.text("No permission.", NamedTextColor.RED));
+            return;
+        }
+
+        Player target;
+        if (args.length >= 2) {
+            target = Bukkit.getPlayer(args[1]);
+            if (target == null) {
+                sender.sendMessage(Component.text("Player not found: " + args[1], NamedTextColor.RED));
+                return;
+            }
+        } else if (sender instanceof Player p) {
+            target = p;
+        } else {
+            sender.sendMessage(Component.text(
+                    "Console must specify a player: /ca givescroll <player>", NamedTextColor.RED));
+            return;
+        }
+
+        ItemStack scroll = plugin.getUnbindScrollManager().buildScroll();
+        target.getInventory().addItem(scroll);
+        target.sendMessage(Component.text("You received an Unbind Scroll.", NamedTextColor.GREEN));
+        if (!sender.equals(target)) {
+            sender.sendMessage(Component.text("Gave Unbind Scroll to " + target.getName() + ".", NamedTextColor.GREEN));
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // /ca reload
     // -------------------------------------------------------------------------
     private void handleReload(CommandSender sender) {
@@ -167,10 +200,12 @@ public class CustomArmorCommand implements CommandExecutor, TabCompleter {
         List<String> completions = new ArrayList<>();
 
         if (args.length == 1) {
-            completions.addAll(List.of("give", "reload", "check"));
+            completions.addAll(List.of("give", "reload", "check", "givescroll"));
         } else if (args.length == 2 && args[0].equalsIgnoreCase("give")) {
             completions.addAll(ArmorManager.PIECES);
         } else if (args.length == 3 && args[0].equalsIgnoreCase("give")) {
+            Bukkit.getOnlinePlayers().forEach(p -> completions.add(p.getName()));
+        } else if (args.length == 2 && args[0].equalsIgnoreCase("givescroll")) {
             Bukkit.getOnlinePlayers().forEach(p -> completions.add(p.getName()));
         }
 
@@ -183,6 +218,6 @@ public class CustomArmorCommand implements CommandExecutor, TabCompleter {
     // Helpers
     // -------------------------------------------------------------------------
     private void sendUsage(CommandSender sender) {
-        sender.sendMessage(Component.text("Usage: /ca <give|reload|check>", NamedTextColor.YELLOW));
+        sender.sendMessage(Component.text("Usage: /ca <give|reload|check|givescroll>", NamedTextColor.YELLOW));
     }
 }

@@ -3,6 +3,13 @@
 # Storage backend: 'yaml' (default, no setup required) or 'mariadb'
 storage-type: yaml
 
+unbind-scroll:
+  material: PAPER
+  name: "&fUnbind Scroll"
+  lore:
+    - "&7Drag onto a soulbound armor piece"
+    - "&7to remove its binding."
+
 database:
   host: localhost
   port: 3306

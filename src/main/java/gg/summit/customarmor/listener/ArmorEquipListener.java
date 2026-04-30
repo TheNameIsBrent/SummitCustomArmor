@@ -2,9 +2,13 @@ package gg.summit.customarmor.listener;
 
 import gg.summit.customarmor.ArmorManager;
 import gg.summit.customarmor.SummitCustomArmor;
+import gg.summit.customarmor.UnbindScrollManager;
 import gg.summit.customarmor.db.ArmorData;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -17,13 +21,14 @@ import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
-
-import org.bukkit.event.player.PlayerDropItemEvent;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
 
 public class ArmorEquipListener implements Listener {
 
     private final SummitCustomArmor plugin;
     private final ArmorManager armorManager;
+    private final UnbindScrollManager scrollManager;
 
     // Armor slot indices when inventory screen is OPEN (invType=CRAFTING)
     // slot field (not rawSlot) for the armor slots
@@ -38,8 +43,57 @@ public class ArmorEquipListener implements Listener {
     private static final int RAW_SLOT_BOOTS      = 8;
 
     public ArmorEquipListener(SummitCustomArmor plugin) {
-        this.plugin       = plugin;
-        this.armorManager = plugin.getArmorManager();
+        this.plugin         = plugin;
+        this.armorManager   = plugin.getArmorManager();
+        this.scrollManager  = plugin.getUnbindScrollManager();
+    }
+
+    // =========================================================================
+    // UNBIND SCROLL — drag scroll onto soulbound armor to remove owner
+    // =========================================================================
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onUnbindScroll(InventoryClickEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player)) return;
+
+        ItemStack cursor = event.getCursor();
+        if (!scrollManager.isUnbindScroll(cursor)) return;
+
+        ItemStack target = event.getCurrentItem();
+        if (!armorManager.isCustomArmor(target)) return;
+
+        // Cancel the click — we handle the interaction ourselves
+        event.setCancelled(true);
+
+        if (armorManager.getOwner(target) == null) {
+            player.sendMessage(Component.text("This armor piece is not soulbound.", NamedTextColor.YELLOW));
+            return;
+        }
+
+        // Remove owner from PDC
+        ItemMeta meta = target.getItemMeta();
+        meta.getPersistentDataContainer().remove(new NamespacedKey(plugin, "armor_owner"));
+        target.setItemMeta(meta);
+
+        // Also clear from cache
+        String piece = armorManager.getPiece(target);
+        if (piece != null && plugin.getDataCache() != null) {
+            plugin.getDataCache().get(player.getUniqueId(), piece).setOwner(null);
+        }
+
+        // Refresh lore so %owner% shows Unbound
+        if (plugin.getLevelManager() != null) {
+            plugin.getLevelManager().refreshLoreOnItem(target);
+        }
+
+        // Consume one scroll from cursor
+        if (cursor.getAmount() > 1) {
+            cursor.setAmount(cursor.getAmount() - 1);
+        } else {
+            event.getView().setCursor(null);
+        }
+
+        player.sendMessage(Component.text("Soulbound removed from armor piece.", NamedTextColor.GREEN));
+        plugin.getLogger().info("[Unbind] " + player.getName() + " unbound " + piece);
     }
 
     // =========================================================================

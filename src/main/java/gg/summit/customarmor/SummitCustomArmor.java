@@ -17,6 +17,7 @@ public final class SummitCustomArmor extends JavaPlugin {
     private ProcManager     procManager;
     private StorageBackend  storage;
     private PlayerDataCache dataCache;
+    private UnbindScrollManager unbindScrollManager;
 
     private static final long SAVE_INTERVAL_TICKS = 6000L;
 
@@ -29,6 +30,7 @@ public final class SummitCustomArmor extends JavaPlugin {
         armorManager = new ArmorManager(this);
         levelManager = new LevelManager(this, armorManager);
         procManager  = new ProcManager(this, armorManager);
+        unbindScrollManager = new UnbindScrollManager(this);
         armorManager.setLevelManager(levelManager);
 
         dataCache = new PlayerDataCache();
@@ -97,10 +99,11 @@ public final class SummitCustomArmor extends JavaPlugin {
         getLogger().info("SummitCustomArmor disabled.");
     }
 
-    public static SummitCustomArmor getInstance()  { return instance; }
-    public ArmorManager    getArmorManager()       { return armorManager; }
-    public LevelManager    getLevelManager()       { return levelManager; }
-    public ProcManager     getProcManager()        { return procManager; }
-    public StorageBackend  getStorage()            { return storage; }
-    public PlayerDataCache getDataCache()          { return dataCache; }
+    public static SummitCustomArmor getInstance()        { return instance; }
+    public ArmorManager         getArmorManager()        { return armorManager; }
+    public LevelManager         getLevelManager()        { return levelManager; }
+    public ProcManager          getProcManager()         { return procManager; }
+    public StorageBackend       getStorage()             { return storage; }
+    public PlayerDataCache      getDataCache()           { return dataCache; }
+    public UnbindScrollManager  getUnbindScrollManager() { return unbindScrollManager; }
 }

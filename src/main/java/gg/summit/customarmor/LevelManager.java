@@ -152,6 +152,22 @@ public class LevelManager {
      * Refreshes lore on all worn custom armor pieces using the current cache state.
      * Called after owner is bound so the lore updates immediately.
      */
+    /**
+     * Refreshes lore on a single ItemStack directly (not necessarily worn).
+     * Reads level/xp from PDC and owner from ArmorManager.
+     */
+    public void refreshLoreOnItem(ItemStack item) {
+        if (!armorManager.isCustomArmor(item)) return;
+        ItemMeta meta = item.getItemMeta();
+        int level = meta.getPersistentDataContainer()
+                        .getOrDefault(KEY_LEVEL, PersistentDataType.INTEGER, 1);
+        int xp    = meta.getPersistentDataContainer()
+                        .getOrDefault(KEY_XP, PersistentDataType.INTEGER, 0);
+        java.util.UUID owner = armorManager.getOwner(item);
+        applyLore(meta, level, xp, owner);
+        item.setItemMeta(meta);
+    }
+
     public void refreshLoreOnWornPieces(Player player) {
         ItemStack[] armor = player.getInventory().getArmorContents();
         boolean changed = false;
