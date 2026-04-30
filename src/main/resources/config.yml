@@ -49,6 +49,7 @@ messages:
   equip-1: "&7You equipped &b1/3 &7Key Finder pieces."
   equip-2: "&aYou equipped &b2/3 &aKey Finder pieces! Bonus active."
   equip-3: "&6Full set! All &b3/3 &6Key Finder pieces equipped!"
+  soulbound-blocked: "&cThis armor is soulbound to another player."
 
 armor:
   # Lore shown on each piece. Placeholders:
@@ -64,15 +65,18 @@ armor:
 
   chestplate:
     name: "&bKey Finder Chestplate"
-    material: DIAMOND_CHESTPLATE
+    material: LEATHER_CHESTPLATE
+    color: "#4DCCFF"      # Hex color — only used for leather armor. Remove line for non-leather.
 
   leggings:
     name: "&bKey Finder Leggings"
-    material: DIAMOND_LEGGINGS
+    material: LEATHER_LEGGINGS
+    color: "#4DCCFF"
 
   boots:
     name: "&bKey Finder Boots"
-    material: DIAMOND_BOOTS
+    material: LEATHER_BOOTS
+    color: "#4DCCFF"
 
 leveling:
   max-level: 25
