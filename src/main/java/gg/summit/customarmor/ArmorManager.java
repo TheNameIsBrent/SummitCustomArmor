@@ -11,6 +11,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.LeatherArmorMeta;
+import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 
 import java.util.ArrayList;
@@ -24,15 +25,15 @@ public class ArmorManager {
     private LevelManager levelManager;
 
     private final NamespacedKey CUSTOM_ARMOR_KEY;
+    private final NamespacedKey OWNER_KEY;        // UUID of the first player to equip it
 
     public static final Set<String> PIECES = Set.of("chestplate", "leggings", "boots");
-
-    // Slot index → piece name (getArmorContents order)
     public static final String[] SLOT_TO_PIECE = {"boots", "leggings", "chestplate"};
 
     public ArmorManager(SummitCustomArmor plugin) {
         this.plugin           = plugin;
         this.CUSTOM_ARMOR_KEY = new NamespacedKey(plugin, "custom_armor");
+        this.OWNER_KEY        = new NamespacedKey(plugin, "armor_owner");
     }
 
     public void setLevelManager(LevelManager levelManager) {
@@ -93,16 +94,42 @@ public class ArmorManager {
                    .has(CUSTOM_ARMOR_KEY, PersistentDataType.STRING);
     }
 
+    public String getPiece(ItemStack item) {
+        if (!isCustomArmor(item)) return null;
+        return item.getItemMeta().getPersistentDataContainer()
+                   .get(CUSTOM_ARMOR_KEY, PersistentDataType.STRING);
+    }
+
     // -------------------------------------------------------------------------
-    // Soulbound — owner lives in the cache/storage, not on the item
+    // Soulbound — owner stored on item PDC so any player can check it
     // -------------------------------------------------------------------------
 
+    /** Returns the UUID of the owner, or null if unbound. */
+    public UUID getOwner(ItemStack item) {
+        if (!isCustomArmor(item)) return null;
+        String stored = item.getItemMeta().getPersistentDataContainer()
+                            .get(OWNER_KEY, PersistentDataType.STRING);
+        return stored != null ? UUID.fromString(stored) : null;
+    }
+
     /**
-     * Returns true if the item is unbound OR the cache says this player owns it.
-     * itemOwnerUuid is the UUID stored in cache for this item's slot.
+     * Binds the item to the player if not already bound.
+     * Returns true if newly bound.
      */
-    public boolean canWear(UUID itemOwner, Player player) {
-        return itemOwner == null || itemOwner.equals(player.getUniqueId());
+    public boolean bindOwner(ItemStack item, Player player) {
+        if (!isCustomArmor(item)) return false;
+        ItemMeta meta = item.getItemMeta();
+        PersistentDataContainer pdc = meta.getPersistentDataContainer();
+        if (pdc.has(OWNER_KEY, PersistentDataType.STRING)) return false; // already bound
+        pdc.set(OWNER_KEY, PersistentDataType.STRING, player.getUniqueId().toString());
+        item.setItemMeta(meta);
+        return true;
+    }
+
+    /** Returns true if the item is unbound OR bound to this player. */
+    public boolean canWear(ItemStack item, Player player) {
+        UUID owner = getOwner(item);
+        return owner == null || owner.equals(player.getUniqueId());
     }
 
     // -------------------------------------------------------------------------

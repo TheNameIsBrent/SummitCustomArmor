@@ -89,16 +89,8 @@ public class ProcListener implements Listener {
         if (block == null || !CROP_MATERIALS.contains(block.getType())) return;
 
         if (block.getBlockData() instanceof Ageable ageable) {
-            if (ageable.getAge() < ageable.getMaximumAge()) {
-                plugin.getLogger().info("[Crop] " + event.getPlayer().getName()
-                        + " hit " + block.getType() + " age=" + ageable.getAge()
-                        + "/" + ageable.getMaximumAge() + " (not fully grown, skipping)");
-                return;
-            }
+            if (ageable.getAge() < ageable.getMaximumAge()) return;
         }
-
-        plugin.getLogger().info("[Crop] " + event.getPlayer().getName()
-                + " hit " + block.getType() + " with " + item.getType() + " — attempting proc");
 
         Player player = event.getPlayer();
         levelManager.grantXp(player, "farming");

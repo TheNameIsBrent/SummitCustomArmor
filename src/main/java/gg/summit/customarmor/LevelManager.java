@@ -113,7 +113,9 @@ public class LevelManager {
             ArmorData data = cache.get(player.getUniqueId(), SLOT_PIECE[i]);
             data.setLevel(getLevel(item));
             data.setXp(getXp(item));
-            // owner stays in cache — don't touch it here
+            // Owner lives in PDC — sync it into cache so it gets saved
+            java.util.UUID owner = armorManager.getOwner(item);
+            if (owner != null) data.setOwner(owner);
         }
     }
 
@@ -136,7 +138,9 @@ public class LevelManager {
 
             pdc.set(KEY_LEVEL, PersistentDataType.INTEGER, data.getLevel());
             pdc.set(KEY_XP,    PersistentDataType.INTEGER, data.getXp());
-            applyLore(meta, data.getLevel(), data.getXp(), data.getOwner());
+            // Owner on item PDC is authoritative — read it from there
+            java.util.UUID owner = armorManager.getOwner(item);
+            applyLore(meta, data.getLevel(), data.getXp(), owner);
             item.setItemMeta(meta);
             changed = true;
         }
@@ -149,7 +153,6 @@ public class LevelManager {
      * Called after owner is bound so the lore updates immediately.
      */
     public void refreshLoreOnWornPieces(Player player) {
-        if (cache == null) return;
         ItemStack[] armor = player.getInventory().getArmorContents();
         boolean changed = false;
 
@@ -157,9 +160,14 @@ public class LevelManager {
             ItemStack item = armor[i];
             if (!armorManager.isCustomArmor(item)) continue;
 
-            ArmorData data = cache.get(player.getUniqueId(), SLOT_PIECE[i]);
-            ItemMeta meta  = item.getItemMeta();
-            applyLore(meta, data.getLevel(), data.getXp(), data.getOwner());
+            ItemMeta meta = item.getItemMeta();
+            int level = meta.getPersistentDataContainer()
+                            .getOrDefault(KEY_LEVEL, PersistentDataType.INTEGER, 1);
+            int xp    = meta.getPersistentDataContainer()
+                            .getOrDefault(KEY_XP, PersistentDataType.INTEGER, 0);
+            java.util.UUID owner = armorManager.getOwner(item);
+
+            applyLore(meta, level, xp, owner);
             item.setItemMeta(meta);
             changed = true;
         }
@@ -197,7 +205,7 @@ public class LevelManager {
 
         pdc.set(KEY_LEVEL, PersistentDataType.INTEGER, level);
         pdc.set(KEY_XP,    PersistentDataType.INTEGER, xp);
-        applyLore(meta, level, xp, data.getOwner());
+        applyLore(meta, level, xp, armorManager.getOwner(item));
         item.setItemMeta(meta);
     }
 

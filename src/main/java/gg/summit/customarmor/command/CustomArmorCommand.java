@@ -126,13 +126,11 @@ public class CustomArmorCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(Component.text("Proc chance:  " + pct, NamedTextColor.AQUA));
 
         // Show owner per worn piece
-        var cache = plugin.getDataCache();
-        String[] slotPieces = {"boots", "leggings", "chestplate"};
         org.bukkit.inventory.ItemStack[] armor = player.getInventory().getArmorContents();
+        String[] slotPieces = {"boots", "leggings", "chestplate"};
         for (int i = 0; i <= 2; i++) {
             if (!armorManager.isCustomArmor(armor[i])) continue;
-            var data = cache.get(player.getUniqueId(), slotPieces[i]);
-            java.util.UUID ownerUuid = data.getOwner();
+            java.util.UUID ownerUuid = armorManager.getOwner(armor[i]);
             String ownerName;
             if (ownerUuid == null) {
                 ownerName = "Unbound";
