@@ -188,6 +188,8 @@ public class CustomArmorCommand implements CommandExecutor, TabCompleter {
         }
 
         plugin.reloadConfig();
+        plugin.getLevelManager().reload();
+        plugin.getProcManager().reload();
         sender.sendMessage(Component.text("SummitCustomArmor config reloaded.", NamedTextColor.GREEN));
     }
 

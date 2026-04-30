@@ -14,96 +14,99 @@ import org.bukkit.persistence.PersistentDataType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 public class LevelManager {
 
     private final SummitCustomArmor plugin;
     private final ArmorManager armorManager;
-    private PlayerDataCache cache; // set after DatabaseManager is ready
+    private PlayerDataCache cache;
 
     private final NamespacedKey KEY_LEVEL;
     private final NamespacedKey KEY_XP;
 
-    // Armor slot indices → piece names (matches getArmorContents() order)
     private static final String[] SLOT_PIECE = {"boots", "leggings", "chestplate"};
+
+    // Cached config — rebuilt on reload()
+    private int     maxLevel;
+    private double  baseXp;
+    private double  scaling;
+    private int[]   xpTable;       // xpTable[level] = XP required to go from level → level+1
+    private List<String> loreTemplate;
 
     public LevelManager(SummitCustomArmor plugin, ArmorManager armorManager) {
         this.plugin       = plugin;
         this.armorManager = armorManager;
         this.KEY_LEVEL    = new NamespacedKey(plugin, "armor_level");
         this.KEY_XP       = new NamespacedKey(plugin, "armor_xp");
+        reload();
     }
 
-    public void setCache(PlayerDataCache cache) {
-        this.cache = cache;
+    public void setCache(PlayerDataCache cache) { this.cache = cache; }
+
+    /** Rebuilds cached config values. Call after /ca reload. */
+    public void reload() {
+        maxLevel = plugin.getConfig().getInt("leveling.max-level", 25);
+        baseXp   = plugin.getConfig().getDouble("leveling.base-xp", 100);
+        scaling  = plugin.getConfig().getDouble("leveling.xp-scaling", 1.5);
+
+        xpTable = new int[maxLevel + 1];
+        for (int i = 1; i <= maxLevel; i++) {
+            xpTable[i] = (int) Math.round(baseXp * Math.pow(i, scaling));
+        }
+
+        loreTemplate = plugin.getConfig().getStringList("armor.lore");
+        if (loreTemplate.isEmpty()) {
+            loreTemplate = List.of("", "&6Level: %level%/%max_level%",
+                    "&eXP: %xp%/%xp_required%", "&7Owner: %owner%");
+        }
     }
 
     // -------------------------------------------------------------------------
-    // Public API — called on the main thread during gameplay
+    // Public API
     // -------------------------------------------------------------------------
 
-    /**
-     * Grants XP to all worn custom armor pieces.
-     * Writes to PDC (for item tooltip) and cache (for DB persistence).
-     * source: "mining", "farming", or "fishing"
-     */
     public void grantXp(Player player, String source) {
         int amount = plugin.getConfig().getInt("leveling.xp-gain." + source, 0);
         if (amount <= 0) return;
 
         ItemStack[] armor = player.getInventory().getArmorContents();
-
         for (int i = 0; i <= 2; i++) {
             ItemStack item = armor[i];
             if (!armorManager.isCustomArmor(item)) continue;
 
             String piece = SLOT_PIECE[i];
-            ArmorData data = (cache != null)
-                    ? cache.get(player.getUniqueId(), piece)
-                    : dataFromItem(item);
-
+            ArmorData data = (cache != null) ? cache.get(player.getUniqueId(), piece) : dataFromItem(item);
             addXp(item, data, amount);
-
             if (cache != null) cache.put(player.getUniqueId(), piece, data);
         }
 
         player.getInventory().setArmorContents(armor);
     }
 
-    /** Level for a piece — reads from cache if available, else PDC. */
     public int getLevel(ItemStack item) {
         if (!armorManager.isCustomArmor(item)) return 1;
         return item.getItemMeta().getPersistentDataContainer()
                    .getOrDefault(KEY_LEVEL, PersistentDataType.INTEGER, 1);
     }
 
-    /** XP for a piece — reads from PDC. */
     public int getXp(ItemStack item) {
         if (!armorManager.isCustomArmor(item)) return 0;
         return item.getItemMeta().getPersistentDataContainer()
                    .getOrDefault(KEY_XP, PersistentDataType.INTEGER, 0);
     }
 
-    /** XP required to reach the next level from the given level. */
     public int xpRequired(int level) {
-        double baseXp  = plugin.getConfig().getDouble("leveling.base-xp", 100);
-        double scaling = plugin.getConfig().getDouble("leveling.xp-scaling", 1.5);
+        if (level >= 1 && level <= maxLevel) return xpTable[level];
         return (int) Math.round(baseXp * Math.pow(level, scaling));
     }
 
-    public int maxLevel() {
-        return plugin.getConfig().getInt("leveling.max-level", 25);
-    }
+    public int maxLevel() { return maxLevel; }
 
-    /** Writes the initial lore (level 1, 0 xp, no owner) onto a freshly built item's meta. */
     public void applyInitialLore(ItemMeta meta) {
         applyLore(meta, 1, 0, null);
     }
 
-    /**
-     * Reads level/xp from the player's worn items and writes them into the cache.
-     * Owner is preserved — we never overwrite it from the item side.
-     */
     public void syncCacheFromItems(Player player) {
         if (cache == null) return;
         ItemStack[] armor = player.getInventory().getArmorContents();
@@ -113,16 +116,11 @@ public class LevelManager {
             ArmorData data = cache.get(player.getUniqueId(), SLOT_PIECE[i]);
             data.setLevel(getLevel(item));
             data.setXp(getXp(item));
-            // Owner lives in PDC — sync it into cache so it gets saved
-            java.util.UUID owner = armorManager.getOwner(item);
+            UUID owner = armorManager.getOwner(item);
             if (owner != null) data.setOwner(owner);
         }
     }
 
-    /**
-     * Reads level/xp/owner from the cache and writes them onto worn items (PDC + lore).
-     * Called after a successful DB load on join.
-     */
     public void syncItemsFromCache(Player player) {
         if (cache == null) return;
         ItemStack[] armor = player.getInventory().getArmorContents();
@@ -138,9 +136,7 @@ public class LevelManager {
 
             pdc.set(KEY_LEVEL, PersistentDataType.INTEGER, data.getLevel());
             pdc.set(KEY_XP,    PersistentDataType.INTEGER, data.getXp());
-            // Owner on item PDC is authoritative — read it from there
-            java.util.UUID owner = armorManager.getOwner(item);
-            applyLore(meta, data.getLevel(), data.getXp(), owner);
+            applyLore(meta, data.getLevel(), data.getXp(), armorManager.getOwner(item));
             item.setItemMeta(meta);
             changed = true;
         }
@@ -148,26 +144,17 @@ public class LevelManager {
         if (changed) player.getInventory().setArmorContents(armor);
     }
 
-    /**
-     * Refreshes lore on all worn custom armor pieces using the current cache state.
-     * Called after owner is bound so the lore updates immediately.
-     */
-    /**
-     * Refreshes lore on a single ItemStack directly (not necessarily worn).
-     * Reads level/xp from PDC and owner from ArmorManager.
-     */
+    /** Refresh lore on a single item (not necessarily worn, e.g. after unbind). */
     public void refreshLoreOnItem(ItemStack item) {
         if (!armorManager.isCustomArmor(item)) return;
         ItemMeta meta = item.getItemMeta();
-        int level = meta.getPersistentDataContainer()
-                        .getOrDefault(KEY_LEVEL, PersistentDataType.INTEGER, 1);
-        int xp    = meta.getPersistentDataContainer()
-                        .getOrDefault(KEY_XP, PersistentDataType.INTEGER, 0);
-        java.util.UUID owner = armorManager.getOwner(item);
-        applyLore(meta, level, xp, owner);
+        int level = meta.getPersistentDataContainer().getOrDefault(KEY_LEVEL, PersistentDataType.INTEGER, 1);
+        int xp    = meta.getPersistentDataContainer().getOrDefault(KEY_XP, PersistentDataType.INTEGER, 0);
+        applyLore(meta, level, xp, armorManager.getOwner(item));
         item.setItemMeta(meta);
     }
 
+    /** Refresh lore on all worn custom armor pieces. */
     public void refreshLoreOnWornPieces(Player player) {
         ItemStack[] armor = player.getInventory().getArmorContents();
         boolean changed = false;
@@ -175,15 +162,10 @@ public class LevelManager {
         for (int i = 0; i <= 2; i++) {
             ItemStack item = armor[i];
             if (!armorManager.isCustomArmor(item)) continue;
-
             ItemMeta meta = item.getItemMeta();
-            int level = meta.getPersistentDataContainer()
-                            .getOrDefault(KEY_LEVEL, PersistentDataType.INTEGER, 1);
-            int xp    = meta.getPersistentDataContainer()
-                            .getOrDefault(KEY_XP, PersistentDataType.INTEGER, 0);
-            java.util.UUID owner = armorManager.getOwner(item);
-
-            applyLore(meta, level, xp, owner);
+            int level = meta.getPersistentDataContainer().getOrDefault(KEY_LEVEL, PersistentDataType.INTEGER, 1);
+            int xp    = meta.getPersistentDataContainer().getOrDefault(KEY_XP, PersistentDataType.INTEGER, 0);
+            applyLore(meta, level, xp, armorManager.getOwner(item));
             item.setItemMeta(meta);
             changed = true;
         }
@@ -196,29 +178,27 @@ public class LevelManager {
     // -------------------------------------------------------------------------
 
     private void addXp(ItemStack item, ArmorData data, int amount) {
-        ItemMeta meta = item.getItemMeta();
-        PersistentDataContainer pdc = meta.getPersistentDataContainer();
-
         int level = data.getLevel();
         int xp    = data.getXp();
-        int max   = maxLevel();
 
-        if (level >= max) return;
+        if (level >= maxLevel) return;
 
         xp += amount;
 
-        while (level < max) {
-            int required = xpRequired(level);
+        while (level < maxLevel) {
+            int required = xpTable[level];
             if (xp < required) break;
             xp -= required;
             level++;
         }
 
-        if (level >= max) xp = 0;
+        if (level >= maxLevel) xp = 0;
 
         data.setLevel(level);
         data.setXp(xp);
 
+        ItemMeta meta = item.getItemMeta();
+        PersistentDataContainer pdc = meta.getPersistentDataContainer();
         pdc.set(KEY_LEVEL, PersistentDataType.INTEGER, level);
         pdc.set(KEY_XP,    PersistentDataType.INTEGER, xp);
         applyLore(meta, level, xp, armorManager.getOwner(item));
@@ -229,48 +209,42 @@ public class LevelManager {
         return new ArmorData(getLevel(item), getXp(item), null);
     }
 
-    private void applyLore(ItemMeta meta, int level, int xp, java.util.UUID owner) {
-        int max       = maxLevel();
-        boolean maxed = level >= max;
-        int required  = maxed ? 0 : xpRequired(level);
-
+    private void applyLore(ItemMeta meta, int level, int xp, UUID owner) {
+        boolean maxed    = level >= maxLevel;
+        int required     = maxed ? 0 : xpTable[level];
         String ownerName = resolveOwnerName(owner);
+        String xpStr     = maxed ? "--" : String.valueOf(xp);
+        String reqStr    = maxed ? "--" : String.valueOf(required);
+        String lvlStr    = String.valueOf(level);
+        String maxStr    = String.valueOf(maxLevel);
 
-        List<String> loreTemplate = plugin.getConfig().getStringList("armor.lore");
-        if (loreTemplate.isEmpty()) {
-            loreTemplate = List.of("", "&6Level: %level%/%max_level%",
-                    "&eXP: %xp%/%xp_required%", "&7Owner: %owner%");
-        }
-
-        List<Component> lore = new ArrayList<>();
+        List<Component> lore = new ArrayList<>(loreTemplate.size());
         for (String line : loreTemplate) {
             String resolved = line
-                    .replace("%level%",       String.valueOf(level))
-                    .replace("%max_level%",   String.valueOf(max))
-                    .replace("%xp%",          maxed ? "--" : String.valueOf(xp))
-                    .replace("%xp_required%", maxed ? "--" : String.valueOf(required))
+                    .replace("%level%",       lvlStr)
+                    .replace("%max_level%",   maxStr)
+                    .replace("%xp%",          xpStr)
+                    .replace("%xp_required%", reqStr)
                     .replace("%owner%",       ownerName);
 
-            if (resolved.isEmpty()) {
-                lore.add(Component.empty());
-            } else {
-                lore.add(LegacyComponentSerializer.legacyAmpersand()
-                        .deserialize(resolved)
-                        .decoration(TextDecoration.ITALIC, false));
-            }
+            lore.add(resolved.isEmpty()
+                ? Component.empty()
+                : LegacyComponentSerializer.legacyAmpersand()
+                    .deserialize(resolved)
+                    .decoration(TextDecoration.ITALIC, false));
         }
 
         meta.lore(lore);
     }
 
-    private String resolveOwnerName(java.util.UUID owner) {
+    private String resolveOwnerName(UUID owner) {
         if (owner == null) return "Unbound";
-        // Try online player first
-        org.bukkit.entity.Player online = plugin.getServer().getPlayer(owner);
+        // Online player lookup is cheap
+        Player online = plugin.getServer().getPlayer(owner);
         if (online != null) return online.getName();
-        // Fall back to offline lookup (may return null name for unknown UUIDs)
-        org.bukkit.OfflinePlayer offline = plugin.getServer().getOfflinePlayer(owner);
-        String name = offline.getName();
+        // Offline lookup — only called for lore on worn pieces, not hot-path
+        // Use cached offline player (no disk I/O if player has joined before)
+        String name = plugin.getServer().getOfflinePlayer(owner).getName();
         return name != null ? name : owner.toString().substring(0, 8) + "...";
     }
 }

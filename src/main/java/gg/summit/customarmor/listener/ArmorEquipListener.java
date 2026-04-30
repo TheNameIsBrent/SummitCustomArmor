@@ -30,26 +30,19 @@ public class ArmorEquipListener implements Listener {
     private final ArmorManager armorManager;
     private final UnbindScrollManager scrollManager;
 
-    // Armor slot indices when inventory screen is OPEN (invType=CRAFTING)
-    // slot field (not rawSlot) for the armor slots
-    private static final int OPEN_SLOT_BOOTS      = 36;
-    private static final int OPEN_SLOT_LEGGINGS   = 37;
-    private static final int OPEN_SLOT_CHESTPLATE = 38;
-
-    // The armor slots have rawSlot values of 5,6,7,8 when inventory is open
-    // boots=8, leggings=7, chestplate=6, helmet=5
+    // rawSlot values for armor slots when the player inventory screen is open
     private static final int RAW_SLOT_CHESTPLATE = 6;
     private static final int RAW_SLOT_LEGGINGS   = 7;
     private static final int RAW_SLOT_BOOTS      = 8;
 
     public ArmorEquipListener(SummitCustomArmor plugin) {
-        this.plugin         = plugin;
-        this.armorManager   = plugin.getArmorManager();
-        this.scrollManager  = plugin.getUnbindScrollManager();
+        this.plugin        = plugin;
+        this.armorManager  = plugin.getArmorManager();
+        this.scrollManager = plugin.getUnbindScrollManager();
     }
 
     // =========================================================================
-    // UNBIND SCROLL — drag scroll onto soulbound armor to remove owner
+    // UNBIND SCROLL — drag scroll onto armor piece anywhere EXCEPT armor slots
     // =========================================================================
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onUnbindScroll(InventoryClickEvent event) {
@@ -58,10 +51,16 @@ public class ArmorEquipListener implements Listener {
         ItemStack cursor = event.getCursor();
         if (!scrollManager.isUnbindScroll(cursor)) return;
 
+        // Block scroll use on armor slots — player would equip unbound armor
+        int raw = event.getRawSlot();
+        if (raw == RAW_SLOT_CHESTPLATE || raw == RAW_SLOT_LEGGINGS || raw == RAW_SLOT_BOOTS) {
+            event.setCancelled(true);
+            return;
+        }
+
         ItemStack target = event.getCurrentItem();
         if (!armorManager.isCustomArmor(target)) return;
 
-        // Cancel the click — we handle the interaction ourselves
         event.setCancelled(true);
 
         if (armorManager.getOwner(target) == null) {
@@ -74,18 +73,16 @@ public class ArmorEquipListener implements Listener {
         meta.getPersistentDataContainer().remove(new NamespacedKey(plugin, "armor_owner"));
         target.setItemMeta(meta);
 
-        // Also clear from cache
+        // Clear from cache
         String piece = armorManager.getPiece(target);
         if (piece != null && plugin.getDataCache() != null) {
             plugin.getDataCache().get(player.getUniqueId(), piece).setOwner(null);
         }
 
-        // Refresh lore so %owner% shows Unbound
-        if (plugin.getLevelManager() != null) {
-            plugin.getLevelManager().refreshLoreOnItem(target);
-        }
+        // Refresh lore
+        plugin.getLevelManager().refreshLoreOnItem(target);
 
-        // Consume one scroll from cursor
+        // Consume one scroll
         if (cursor.getAmount() > 1) {
             cursor.setAmount(cursor.getAmount() - 1);
         } else {
@@ -93,25 +90,15 @@ public class ArmorEquipListener implements Listener {
         }
 
         player.sendMessage(Component.text("Soulbound removed from armor piece.", NamedTextColor.GREEN));
-        plugin.getLogger().info("[Unbind] " + player.getName() + " unbound " + piece);
     }
 
     // =========================================================================
-    // Always allow dropping custom armor regardless of other plugins
+    // Always allow dropping custom armor
     // =========================================================================
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onDrop(PlayerDropItemEvent event) {
         if (!armorManager.isCustomArmor(event.getItemDrop().getItemStack())) return;
         event.setCancelled(false);
-    }
-
-    // =========================================================================
-    // DEBUG - keep for one more round to verify right-click cancel source
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onInteractDebugLowest(PlayerInteractEvent event) {
-        if (!armorManager.isCustomArmor(event.getItem())) return;
-        plugin.getLogger().info("[DEBUG-INTERACT-LOWEST] cancelled=" + event.isCancelled()
-            + " action=" + event.getAction() + " hand=" + event.getHand());
     }
 
     // =========================================================================
@@ -122,6 +109,7 @@ public class ArmorEquipListener implements Listener {
         if (event.getHand() != EquipmentSlot.HAND) return;
         if (event.getAction() != Action.RIGHT_CLICK_AIR &&
             event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+
         ItemStack item = event.getItem();
         if (!armorManager.isCustomArmor(item)) return;
         if (event.getPlayer().getOpenInventory().getTopInventory().getType()
@@ -135,14 +123,13 @@ public class ArmorEquipListener implements Listener {
             return;
         }
 
-        // Un-cancel in case another plugin cancelled it, then handle post-equip
         event.setCancelled(false);
         int before = armorManager.countPieces(player);
         plugin.getServer().getScheduler().runTask(plugin, () -> postEquip(player, before));
     }
 
     // =========================================================================
-    // INVENTORY CLICK — place cursor onto armor slot (drag = PICKUP then PLACE)
+    // INVENTORY CLICK — place cursor onto armor slot, number-swap, shift-click
     // =========================================================================
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onInventoryClick(InventoryClickEvent event) {
@@ -152,7 +139,7 @@ public class ArmorEquipListener implements Listener {
         int rawSlot = event.getRawSlot();
         InventoryAction action = event.getAction();
 
-        // --- Placing cursor item onto an armor slot (rawSlot 6,7,8) ---
+        // Cursor placed onto an armor slot
         if (rawSlot == RAW_SLOT_CHESTPLATE || rawSlot == RAW_SLOT_LEGGINGS
                 || rawSlot == RAW_SLOT_BOOTS) {
             ItemStack cursor = event.getCursor();
@@ -167,7 +154,7 @@ public class ArmorEquipListener implements Listener {
                 plugin.getServer().getScheduler().runTask(plugin, () -> postEquip(player, before));
                 return;
             }
-            // Hotbar number-key swap onto armor slot
+            // Number-key swap onto armor slot
             if (action == InventoryAction.HOTBAR_SWAP) {
                 int btn = event.getHotbarButton();
                 if (btn >= 0) {
@@ -187,7 +174,7 @@ public class ArmorEquipListener implements Listener {
             return;
         }
 
-        // --- Shift-click from hotbar or inventory → goes to armor slot ---
+        // Shift-click from hotbar or inventory
         if (action == InventoryAction.MOVE_TO_OTHER_INVENTORY) {
             ItemStack current = event.getCurrentItem();
             if (!armorManager.isCustomArmor(current)) return;
@@ -202,7 +189,7 @@ public class ArmorEquipListener implements Listener {
     }
 
     // =========================================================================
-    // Post-equip: bind + lore + message (1 tick after equip)
+    // Post-equip: bind + cache sync + lore + message (1 tick after equip)
     // =========================================================================
     private void postEquip(Player player, int countBefore) {
         ItemStack[] armor = player.getInventory().getArmorContents();
@@ -224,9 +211,7 @@ public class ArmorEquipListener implements Listener {
 
         if (dirty) player.getInventory().setArmorContents(armor);
 
-        if (plugin.getLevelManager() != null) {
-            plugin.getLevelManager().refreshLoreOnWornPieces(player);
-        }
+        plugin.getLevelManager().refreshLoreOnWornPieces(player);
 
         int after = armorManager.countPieces(player);
         if (after > countBefore) sendEquipMessage(player, after);
@@ -240,8 +225,7 @@ public class ArmorEquipListener implements Listener {
     }
 
     private void sendSoulboundMessage(Player player) {
-        String msg = plugin.getConfig().getString(
-                "messages.soulbound-blocked",
+        String msg = plugin.getConfig().getString("messages.soulbound-blocked",
                 "&cThis armor is soulbound to another player.");
         player.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(msg));
     }
