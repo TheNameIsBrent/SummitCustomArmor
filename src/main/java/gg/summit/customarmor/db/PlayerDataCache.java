@@ -19,7 +19,7 @@ public class PlayerDataCache {
 
     /** Returns cached data, or a fresh default if not present. */
     public ArmorData get(UUID uuid, String piece) {
-        return cache.computeIfAbsent(key(uuid, piece), k -> new ArmorData(1, 0));
+        return cache.computeIfAbsent(key(uuid, piece), k -> new ArmorData(1, 0, null));
     }
 
     /** Stores data for a player+piece. */

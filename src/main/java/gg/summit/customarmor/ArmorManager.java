@@ -24,14 +24,15 @@ public class ArmorManager {
     private LevelManager levelManager;
 
     private final NamespacedKey CUSTOM_ARMOR_KEY;
-    private final NamespacedKey OWNER_KEY;
 
     public static final Set<String> PIECES = Set.of("chestplate", "leggings", "boots");
+
+    // Slot index → piece name (getArmorContents order)
+    public static final String[] SLOT_TO_PIECE = {"boots", "leggings", "chestplate"};
 
     public ArmorManager(SummitCustomArmor plugin) {
         this.plugin           = plugin;
         this.CUSTOM_ARMOR_KEY = new NamespacedKey(plugin, "custom_armor");
-        this.OWNER_KEY        = new NamespacedKey(plugin, "armor_owner");
     }
 
     public void setLevelManager(LevelManager levelManager) {
@@ -58,7 +59,6 @@ public class ArmorManager {
         ItemStack item = new ItemStack(material);
         ItemMeta meta  = item.getItemMeta();
 
-        // Display name — italic explicitly disabled so it renders without italic
         meta.displayName(
             LegacyComponentSerializer.legacyAmpersand()
                 .deserialize(displayName)
@@ -67,12 +67,10 @@ public class ArmorManager {
 
         meta.getPersistentDataContainer().set(CUSTOM_ARMOR_KEY, PersistentDataType.STRING, piece);
 
-        // Leather color support
         if (meta instanceof LeatherArmorMeta leatherMeta && section.contains("color")) {
             String hex = section.getString("color", "#FFFFFF").replace("#", "");
             try {
-                int rgb = Integer.parseInt(hex, 16);
-                leatherMeta.setColor(Color.fromRGB(rgb));
+                leatherMeta.setColor(Color.fromRGB(Integer.parseInt(hex, 16)));
             } catch (NumberFormatException e) {
                 plugin.getLogger().warning("Invalid color '" + hex + "' for piece: " + piece);
             }
@@ -96,41 +94,15 @@ public class ArmorManager {
     }
 
     // -------------------------------------------------------------------------
-    // Soulbound
+    // Soulbound — owner lives in the cache/storage, not on the item
     // -------------------------------------------------------------------------
 
     /**
-     * Returns the UUID of the player who first equipped this item, or null if unbound.
+     * Returns true if the item is unbound OR the cache says this player owns it.
+     * itemOwnerUuid is the UUID stored in cache for this item's slot.
      */
-    public UUID getOwner(ItemStack item) {
-        if (!isCustomArmor(item)) return null;
-        String stored = item.getItemMeta().getPersistentDataContainer()
-                            .get(OWNER_KEY, PersistentDataType.STRING);
-        return stored != null ? UUID.fromString(stored) : null;
-    }
-
-    /**
-     * Binds the item to the given player. No-op if already bound.
-     * Returns true if the item was just bound (first equip).
-     */
-    public boolean bindOwner(ItemStack item, Player player) {
-        if (!isCustomArmor(item)) return false;
-        ItemMeta meta = item.getItemMeta();
-        if (meta.getPersistentDataContainer().has(OWNER_KEY, PersistentDataType.STRING)) {
-            return false; // already bound
-        }
-        meta.getPersistentDataContainer()
-            .set(OWNER_KEY, PersistentDataType.STRING, player.getUniqueId().toString());
-        item.setItemMeta(meta);
-        return true;
-    }
-
-    /**
-     * Returns true if the item is unbound OR bound to this player.
-     */
-    public boolean canWear(ItemStack item, Player player) {
-        UUID owner = getOwner(item);
-        return owner == null || owner.equals(player.getUniqueId());
+    public boolean canWear(UUID itemOwner, Player player) {
+        return itemOwner == null || itemOwner.equals(player.getUniqueId());
     }
 
     // -------------------------------------------------------------------------

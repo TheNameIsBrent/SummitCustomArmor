@@ -27,15 +27,16 @@ public class DatabaseManager implements StorageBackend {
                 piece VARCHAR(16) NOT NULL,
                 level INT         NOT NULL,
                 xp    DOUBLE      NOT NULL,
+                owner VARCHAR(36) DEFAULT NULL,
                 UNIQUE KEY unique_player_piece (uuid, piece)
             )""";
 
     private static final String UPSERT =
-            "INSERT INTO custom_armor_data (uuid, piece, level, xp) VALUES (?, ?, ?, ?) " +
-            "ON DUPLICATE KEY UPDATE level = VALUES(level), xp = VALUES(xp)";
+            "INSERT INTO custom_armor_data (uuid, piece, level, xp, owner) VALUES (?, ?, ?, ?, ?) " +
+            "ON DUPLICATE KEY UPDATE level = VALUES(level), xp = VALUES(xp), owner = VALUES(owner)";
 
     private static final String SELECT_PLAYER =
-            "SELECT piece, level, xp FROM custom_armor_data WHERE uuid = ?";
+            "SELECT piece, level, xp, owner FROM custom_armor_data WHERE uuid = ?";
 
     public DatabaseManager(SummitCustomArmor plugin, PlayerDataCache cache, ClassLoader libLoader) {
         this.plugin    = plugin;
@@ -99,8 +100,10 @@ public class DatabaseManager implements StorageBackend {
                 stmt.setString(1, uuid.toString());
                 ResultSet rs = stmt.executeQuery();
                 while (rs.next()) {
+                    String ownerStr = rs.getString("owner");
+                    UUID owner = ownerStr != null ? UUID.fromString(ownerStr) : null;
                     cache.put(uuid, rs.getString("piece"),
-                            new ArmorData(rs.getInt("level"), rs.getInt("xp")));
+                            new ArmorData(rs.getInt("level"), rs.getInt("xp"), owner));
                 }
             } catch (Exception e) {
                 plugin.getLogger().severe("[Storage] Load failed for " + uuid + ": " + e.getMessage());
@@ -121,6 +124,8 @@ public class DatabaseManager implements StorageBackend {
                     stmt.setString(2, piece);
                     stmt.setInt(3, data.getLevel());
                     stmt.setDouble(4, data.getXp());
+                    UUID owner = data.getOwner();
+                    stmt.setString(5, owner != null ? owner.toString() : null);
                     stmt.addBatch();
                 }
                 stmt.executeBatch();
