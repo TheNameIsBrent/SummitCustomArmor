@@ -7,8 +7,12 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryType;
+import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
-import io.papermc.paper.event.player.PlayerArmorChangeEvent;
 
 public class ArmorEquipListener implements Listener {
 
@@ -20,46 +24,84 @@ public class ArmorEquipListener implements Listener {
         this.armorManager = plugin.getArmorManager();
     }
 
+    /** Inventory drag/click equip. */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onInventoryClick(InventoryClickEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player)) return;
+        if (event.getInventory().getType() != InventoryType.CRAFTING &&
+            event.getInventory().getType() != InventoryType.PLAYER) return;
+
+        // Check if the item being moved is a custom armor piece
+        ItemStack cursor  = event.getCursor();
+        ItemStack current = event.getCurrentItem();
+        ItemStack relevant = armorManager.isCustomArmor(cursor)  ? cursor
+                           : armorManager.isCustomArmor(current) ? current
+                           : null;
+        if (relevant == null) return;
+
+        checkSoulboundAndSchedule(player, relevant, event);
+    }
+
     /**
-     * Paper's PlayerArmorChangeEvent fires for ALL equip methods:
-     * inventory click, right-click, dispensers, etc.
+     * Right-click equip — player holds armor and right-clicks.
+     * This auto-equips the item into the correct armor slot.
      */
-    @EventHandler(priority = EventPriority.HIGH)
-    public void onArmorChange(PlayerArmorChangeEvent event) {
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onRightClickEquip(PlayerInteractEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) return;
+        if (event.getAction() != Action.RIGHT_CLICK_AIR &&
+            event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+
+        ItemStack item = event.getItem();
+        if (!armorManager.isCustomArmor(item)) return;
+
         Player player = event.getPlayer();
-        ItemStack newItem = event.getNewItem();
 
-        // Only care about custom armor being equipped (not removed)
-        if (!armorManager.isCustomArmor(newItem)) return;
-
-        // --- Soulbound check ---
-        if (!armorManager.canWear(newItem, player)) {
+        // Block if soulbound to someone else — cancel before the game equips it
+        if (!armorManager.canWear(item, player)) {
             event.setCancelled(true);
-            String msg = plugin.getConfig().getString(
-                    "messages.soulbound-blocked",
-                    "&cThis armor belongs to someone else.");
-            player.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(msg));
+            sendSoulboundMessage(player);
             return;
         }
 
-        // --- Bind owner on first equip ---
-        boolean justBound = armorManager.bindOwner(newItem, player);
-        if (justBound) {
-            plugin.getLogger().info("[Soulbound] " + player.getName()
-                    + " bound " + event.getSlotType().name());
+        // Bind on first equip, then schedule the count message
+        armorManager.bindOwner(item, player);
+        plugin.getServer().getScheduler().runTask(plugin, () ->
+            sendEquipMessage(player, armorManager.countPieces(player))
+        );
+    }
+
+    // -------------------------------------------------------------------------
+
+    private void checkSoulboundAndSchedule(Player player, ItemStack item,
+                                            InventoryClickEvent event) {
+        if (!armorManager.canWear(item, player)) {
+            event.setCancelled(true);
+            sendSoulboundMessage(player);
+            return;
         }
 
-        // --- Equip message ---
-        // Schedule 1 tick so the inventory reflects the new piece
+        int before = armorManager.countPieces(player);
         plugin.getServer().getScheduler().runTask(plugin, () -> {
-            int count = armorManager.countPieces(player);
-            if (count > 0) sendEquipMessage(player, count);
+            // Bind if this was a fresh equip into an armor slot
+            armorManager.getWornPieces(player).forEach(p -> armorManager.bindOwner(p, player));
+
+            int after = armorManager.countPieces(player);
+            if (after > before) sendEquipMessage(player, after);
         });
     }
 
     private void sendEquipMessage(Player player, int pieces) {
+        if (pieces <= 0) return;
         String raw = plugin.getConfig().getString("messages.equip-" + pieces, "");
         if (raw.isBlank()) return;
         player.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(raw));
+    }
+
+    private void sendSoulboundMessage(Player player) {
+        String msg = plugin.getConfig().getString(
+                "messages.soulbound-blocked",
+                "&cThis armor is soulbound to another player.");
+        player.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(msg));
     }
 }
