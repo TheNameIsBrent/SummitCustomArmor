@@ -15,12 +15,14 @@ import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.Material;
 
 public class ArmorEquipListener implements Listener {
 
     private final SummitCustomArmor plugin;
     private final ArmorManager armorManager;
 
+    // Raw slot indices in the player inventory for armor slots
     private static final int SLOT_BOOTS      = 36;
     private static final int SLOT_LEGGINGS   = 37;
     private static final int SLOT_CHESTPLATE = 38;
@@ -31,7 +33,7 @@ public class ArmorEquipListener implements Listener {
     }
 
     // -------------------------------------------------------------------------
-    // Right-click equip
+    // Right-click equip while NOT in inventory (item in hand, right-click world)
     // -------------------------------------------------------------------------
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -43,116 +45,132 @@ public class ArmorEquipListener implements Listener {
         ItemStack item = event.getItem();
         if (!armorManager.isCustomArmor(item)) return;
 
+        // Only fires when inventory is CLOSED — open inventory uses InventoryClickEvent
+        if (event.getPlayer().getOpenInventory().getTopInventory().getType()
+                != org.bukkit.event.inventory.InventoryType.CRAFTING) return;
+
         Player player = event.getPlayer();
 
-        // Block non-owner before equip happens
         if (!armorManager.canWear(item, player)) {
             event.setCancelled(true);
             sendSoulboundMessage(player);
             return;
         }
 
-        // Bind and update everything 1 tick later (after Minecraft auto-equips)
+        // Item will be auto-equipped by Minecraft after this event — handle post-equip in next tick
         int before = armorManager.countPieces(player);
-        plugin.getServer().getScheduler().runTask(plugin, () -> {
-            // Only bind the item that is now in the slot it belongs in
-            ItemStack[] armor = player.getInventory().getArmorContents();
-            for (int i = 0; i <= 2; i++) {
-                ItemStack worn = armor[i];
-                if (!armorManager.isCustomArmor(worn)) continue;
-                if (armorManager.getOwner(worn) == null) {
-                    armorManager.bindOwner(worn, player);
-                    // Write updated meta back into the array
-                    armor[i] = worn;
-                }
-            }
-            player.getInventory().setArmorContents(armor);
-
-            // Sync owner into cache for storage
-            syncOwnerToCache(player);
-
-            // Refresh lore so owner shows up
-            if (plugin.getLevelManager() != null) {
-                plugin.getLevelManager().refreshLoreOnWornPieces(player);
-            }
-
-            int after = armorManager.countPieces(player);
-            if (after > before) sendEquipMessage(player, after);
-        });
+        plugin.getServer().getScheduler().runTask(plugin, () ->
+            postEquip(player, before)
+        );
     }
 
     // -------------------------------------------------------------------------
-    // Inventory click equip (drag into slot, shift-click)
+    // All inventory-based equip methods (drag to slot, shift-click, hotbar swap)
     // -------------------------------------------------------------------------
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player player)) return;
+
+        // Only the player's own inventory screen
         if (event.getInventory().getType() != InventoryType.CRAFTING &&
             event.getInventory().getType() != InventoryType.PLAYER) return;
 
-        ItemStack moving = getArmorItemBeingEquipped(event);
-        if (moving == null || !armorManager.isCustomArmor(moving)) return;
+        // Determine if a custom armor item is about to land in an armor slot
+        ItemStack candidate = getItemBeingEquipped(event);
+        if (candidate == null) return; // not an equip action targeting an armor slot
 
-        // Block non-owner immediately
-        if (!armorManager.canWear(moving, player)) {
+        // SOULBOUND CHECK — block before the item moves
+        if (!armorManager.canWear(candidate, player)) {
             event.setCancelled(true);
             sendSoulboundMessage(player);
             return;
         }
 
-        // Bind and refresh 1 tick after inventory updates
         int before = armorManager.countPieces(player);
-        plugin.getServer().getScheduler().runTask(plugin, () -> {
-            ItemStack[] armor = player.getInventory().getArmorContents();
-            for (int i = 0; i <= 2; i++) {
-                ItemStack worn = armor[i];
-                if (!armorManager.isCustomArmor(worn)) continue;
-                if (armorManager.getOwner(worn) == null) {
-                    armorManager.bindOwner(worn, player);
-                    armor[i] = worn;
-                }
+        plugin.getServer().getScheduler().runTask(plugin, () ->
+            postEquip(player, before)
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Shared post-equip logic (runs 1 tick after equip, on main thread)
+    // -------------------------------------------------------------------------
+
+    private void postEquip(Player player, int piecesBeforeEquip) {
+        ItemStack[] armor = player.getInventory().getArmorContents();
+        boolean changed = false;
+
+        for (int i = 0; i <= 2; i++) {
+            ItemStack worn = armor[i];
+            if (!armorManager.isCustomArmor(worn)) continue;
+            if (armorManager.getOwner(worn) == null) {
+                armorManager.bindOwner(worn, player);
+                armor[i] = worn;
+                changed = true;
             }
-            player.getInventory().setArmorContents(armor);
+        }
 
-            syncOwnerToCache(player);
+        if (changed) player.getInventory().setArmorContents(armor);
 
-            if (plugin.getLevelManager() != null) {
-                plugin.getLevelManager().refreshLoreOnWornPieces(player);
-            }
+        // Sync owner PDC → cache so it gets saved
+        syncOwnerToCache(player, armor);
 
-            int after = armorManager.countPieces(player);
-            if (after > before) sendEquipMessage(player, after);
-        });
+        // Refresh lore on all worn pieces
+        if (plugin.getLevelManager() != null) {
+            plugin.getLevelManager().refreshLoreOnWornPieces(player);
+        }
+
+        int after = armorManager.countPieces(player);
+        if (after > piecesBeforeEquip) sendEquipMessage(player, after);
     }
 
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
-    /** Returns the custom armor item being moved into an armor slot, or null. */
-    private ItemStack getArmorItemBeingEquipped(InventoryClickEvent event) {
+    /**
+     * Returns the item that is about to be placed INTO an armor slot, or null.
+     * Only returns non-null when the destination is actually an armor slot.
+     * Does NOT return items being removed from armor slots.
+     */
+    private ItemStack getItemBeingEquipped(InventoryClickEvent event) {
         int slot = event.getRawSlot();
         InventoryAction action = event.getAction();
 
-        // Clicking directly into an armor slot with cursor
+        // Case 1: player places cursor item onto an armor slot directly
         if (slot >= SLOT_BOOTS && slot <= SLOT_CHESTPLATE) {
             ItemStack cursor = event.getCursor();
-            if (cursor != null && !cursor.getType().isAir()) return cursor;
+            if (cursor != null && cursor.getType() != Material.AIR
+                    && armorManager.isCustomArmor(cursor)) {
+                return cursor;
+            }
+            // Also catch number key swap (hotbar → armor slot)
+            if (action == InventoryAction.HOTBAR_SWAP) {
+                int hotbarButton = event.getHotbarButton();
+                if (hotbarButton >= 0) {
+                    ItemStack hotbarItem = player(event).getInventory().getItem(hotbarButton);
+                    if (armorManager.isCustomArmor(hotbarItem)) return hotbarItem;
+                }
+            }
+            return null; // clicking on armor slot but not placing custom armor
         }
 
-        // Shift-click from inventory/hotbar
+        // Case 2: shift-click from hotbar/inventory → automatically goes to armor slot
         if (action == InventoryAction.MOVE_TO_OTHER_INVENTORY) {
-            return event.getCurrentItem();
+            ItemStack current = event.getCurrentItem();
+            if (armorManager.isCustomArmor(current)) return current;
         }
 
         return null;
     }
 
-    /** Writes the owner UUID from the item's PDC back into the cache (for storage persistence). */
-    private void syncOwnerToCache(Player player) {
+    private Player player(InventoryClickEvent event) {
+        return (Player) event.getWhoClicked();
+    }
+
+    private void syncOwnerToCache(Player player, ItemStack[] armor) {
         if (plugin.getDataCache() == null) return;
-        ItemStack[] armor = player.getInventory().getArmorContents();
         for (int i = 0; i <= 2; i++) {
             ItemStack item = armor[i];
             if (!armorManager.isCustomArmor(item)) continue;
