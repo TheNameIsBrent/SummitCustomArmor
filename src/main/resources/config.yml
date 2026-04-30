@@ -51,6 +51,17 @@ messages:
   equip-3: "&6Full set! All &b3/3 &6Key Finder pieces equipped!"
 
 armor:
+  # Lore shown on each piece. Placeholders:
+  #   %level%        — current level
+  #   %max_level%    — maximum level
+  #   %xp%           — current XP (shows -- at max level)
+  #   %xp_required%  — XP needed for next level (shows -- at max level)
+  # Use '' for a blank line.
+  lore:
+    - ""
+    - "&6Level: &e%level%&6/&e%max_level%"
+    - "&7XP: &f%xp%&7/&f%xp_required%"
+
   chestplate:
     name: "&bKey Finder Chestplate"
     material: DIAMOND_CHESTPLATE

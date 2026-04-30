@@ -3,8 +3,8 @@ package gg.summit.customarmor;
 import gg.summit.customarmor.db.ArmorData;
 import gg.summit.customarmor.db.PlayerDataCache;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
@@ -12,6 +12,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class LevelManager {
@@ -185,15 +186,29 @@ public class LevelManager {
         boolean maxed = level >= max;
         int required  = maxed ? 0 : xpRequired(level);
 
-        String levelLine = "Level: " + level + "/" + max + (maxed ? " (MAX)" : "");
-        String xpLine    = maxed ? "XP: --" : "XP: " + xp + "/" + required;
+        List<String> loreTemplate = plugin.getConfig().getStringList("armor.lore");
+        if (loreTemplate.isEmpty()) {
+            // Fallback if no lore config
+            loreTemplate = List.of("", "&6Level: %level%/%max_level%", "&eXP: %xp%/%xp_required%");
+        }
 
-        meta.lore(List.of(
-                Component.empty(),
-                Component.text(levelLine, NamedTextColor.GOLD)
-                         .decoration(TextDecoration.ITALIC, false),
-                Component.text(xpLine, NamedTextColor.YELLOW)
-                         .decoration(TextDecoration.ITALIC, false)
-        ));
+        List<Component> lore = new ArrayList<>();
+        for (String line : loreTemplate) {
+            String resolved = line
+                    .replace("%level%",       String.valueOf(level))
+                    .replace("%max_level%",   String.valueOf(max))
+                    .replace("%xp%",          maxed ? "--" : String.valueOf(xp))
+                    .replace("%xp_required%", maxed ? "--" : String.valueOf(required));
+
+            if (resolved.isEmpty()) {
+                lore.add(Component.empty());
+            } else {
+                lore.add(LegacyComponentSerializer.legacyAmpersand()
+                        .deserialize(resolved)
+                        .decoration(TextDecoration.ITALIC, false));
+            }
+        }
+
+        meta.lore(lore);
     }
 }

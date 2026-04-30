@@ -51,16 +51,25 @@ public class ProcListener implements Listener {
         this.plugin       = plugin;
     }
 
-    /** Mining */
+    private static final Set<Material> PICKAXES = Set.of(
+            Material.WOODEN_PICKAXE,
+            Material.STONE_PICKAXE,
+            Material.IRON_PICKAXE,
+            Material.GOLDEN_PICKAXE,
+            Material.DIAMOND_PICKAXE,
+            Material.NETHERITE_PICKAXE
+    );
+
+    /** Mining — pickaxe required, block must be mineable by pickaxe. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBlockBreak(BlockBreakEvent event) {
-        Material type = event.getBlock().getType();
-        boolean isMining = Tag.MINEABLE_PICKAXE.isTagged(type)
-                        || Tag.MINEABLE_AXE.isTagged(type)
-                        || Tag.MINEABLE_SHOVEL.isTagged(type);
-        if (!isMining) return;
-
         Player player = event.getPlayer();
+        ItemStack held = player.getInventory().getItemInMainHand();
+        if (!PICKAXES.contains(held.getType())) return;
+
+        Material type = event.getBlock().getType();
+        if (!Tag.MINEABLE_PICKAXE.isTagged(type)) return;
+
         levelManager.grantXp(player, "mining");
         procManager.tryProc(player);
     }
