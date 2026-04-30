@@ -18,6 +18,8 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 
+import org.bukkit.event.player.PlayerDropItemEvent;
+
 public class ArmorEquipListener implements Listener {
 
     private final SummitCustomArmor plugin;
@@ -40,6 +42,16 @@ public class ArmorEquipListener implements Listener {
         this.armorManager = plugin.getArmorManager();
     }
 
+    // =========================================================================
+    // Always allow dropping custom armor regardless of other plugins
+    // =========================================================================
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onDrop(PlayerDropItemEvent event) {
+        if (!armorManager.isCustomArmor(event.getItemDrop().getItemStack())) return;
+        event.setCancelled(false);
+    }
+
+    // =========================================================================
     // DEBUG - keep for one more round to verify right-click cancel source
     @EventHandler(priority = EventPriority.LOWEST)
     public void onInteractDebugLowest(PlayerInteractEvent event) {
