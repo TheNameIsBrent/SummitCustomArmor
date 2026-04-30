@@ -202,7 +202,7 @@ public class LevelManager {
     }
 
     private ArmorData dataFromItem(ItemStack item) {
-        return new ArmorData(getLevel(item), getXp(item));
+        return new ArmorData(getLevel(item), getXp(item), null);
     }
 
     private void applyLore(ItemMeta meta, int level, int xp, java.util.UUID owner) {
