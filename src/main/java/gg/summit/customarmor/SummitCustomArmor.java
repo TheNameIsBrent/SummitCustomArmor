@@ -2,6 +2,7 @@ package gg.summit.customarmor;
 
 import gg.summit.customarmor.command.CustomArmorCommand;
 import gg.summit.customarmor.db.*;
+import gg.summit.customarmor.listener.AnvilListener;
 import gg.summit.customarmor.listener.ArmorEquipListener;
 import gg.summit.customarmor.listener.PlayerListener;
 import gg.summit.customarmor.listener.ProcListener;
@@ -81,6 +82,7 @@ public final class SummitCustomArmor extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new ProcListener(procManager, levelManager, this), this);
         getServer().getPluginManager().registerEvents(new PlayerListener(this), this);
         getServer().getPluginManager().registerEvents(new ArmorEquipListener(this), this);
+        getServer().getPluginManager().registerEvents(new AnvilListener(this), this);
 
         // Periodic async save every 5 minutes
         getServer().getScheduler().runTaskTimerAsynchronously(
