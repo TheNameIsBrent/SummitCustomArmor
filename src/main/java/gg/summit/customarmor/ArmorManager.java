@@ -73,6 +73,9 @@ public class ArmorManager {
             }
         }
 
+        // Hide vanilla attribute tooltip ("When on chest: +3 Armor") for all materials
+        meta.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ATTRIBUTES);
+
         if (levelManager != null) levelManager.applyInitialLore(meta);
 
         item.setItemMeta(meta);
