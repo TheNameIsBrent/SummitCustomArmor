@@ -1,98 +1,86 @@
-# SummitCustomArmor
+package gg.summit.customarmor.db;
 
-A Paper/Spigot plugin providing custom armor items with a proc system for Summit servers.
+import gg.summit.customarmor.SummitCustomArmor;
+import org.bukkit.configuration.file.YamlConfiguration;
 
-## Setup
+import java.io.File;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
-This project uses Gradle. GitHub Actions will build it automatically on every push via `.github/workflows/gradle.yml`.
+public class YamlStorageBackend implements StorageBackend {
 
-To build locally (requires JDK 21):
-```bash
-gradle build
-```
+    private static final String[] PIECES = {"chestplate", "leggings", "boots"};
 
-The compiled jar will be in `build/libs/`.
+    private final SummitCustomArmor plugin;
+    private final PlayerDataCache cache;
+    private final File dataDir;
 
----
+    public YamlStorageBackend(SummitCustomArmor plugin, PlayerDataCache cache) {
+        this.plugin  = plugin;
+        this.cache   = cache;
+        this.dataDir = new File(plugin.getDataFolder(), "playerdata");
+    }
 
-## Commands
+    @Override
+    public void connect() {
+        dataDir.mkdirs();
+        plugin.getLogger().info("[Storage] Using YAML backend.");
+    }
 
-| Command | Description | Permission |
-|---|---|---|
-| `/ca give <piece> [player]` | Give a custom armor piece | `customarmor.give` (op) |
-| `/ca reload` | Reload config.yml | `customarmor.reload` (op) |
-| `/ca check` | Show how many custom pieces you're wearing | `customarmor.check` (all) |
+    @Override
+    public void disconnect() {}
 
-**Alias:** `/customarmor`
+    @Override
+    public CompletableFuture<Void> loadPlayer(UUID uuid) {
+        return CompletableFuture.runAsync(() -> {
+            File file = playerFile(uuid);
+            if (!file.exists()) return;
 
-**Pieces:** `chestplate`, `leggings`, `boots`
+            YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
+            for (String piece : PIECES) {
+                int  level    = yaml.getInt(piece + ".level", 1);
+                int  xp       = yaml.getInt(piece + ".xp", 0);
+                String ownerStr = yaml.getString(piece + ".owner", null);
+                UUID owner    = ownerStr != null ? UUID.fromString(ownerStr) : null;
+                cache.put(uuid, piece, new ArmorData(level, xp, owner));
+            }
+        });
+    }
 
----
+    @Override
+    public CompletableFuture<Void> savePlayer(UUID uuid, boolean evictAfter) {
+        // Snapshot on calling thread
+        String[]    pieceNames = PIECES;
+        ArmorData[] snapshots  = new ArmorData[PIECES.length];
+        for (int i = 0; i < PIECES.length; i++) {
+            ArmorData d = cache.get(uuid, PIECES[i]);
+            snapshots[i] = new ArmorData(d.getLevel(), d.getXp(), d.getOwner());
+        }
 
-## Proc System
+        return CompletableFuture.runAsync(() -> {
+            YamlConfiguration yaml = new YamlConfiguration();
+            for (int i = 0; i < pieceNames.length; i++) {
+                yaml.set(pieceNames[i] + ".level", snapshots[i].getLevel());
+                yaml.set(pieceNames[i] + ".xp",    snapshots[i].getXp());
+                UUID owner = snapshots[i].getOwner();
+                yaml.set(pieceNames[i] + ".owner", owner != null ? owner.toString() : null);
+            }
+            try {
+                yaml.save(playerFile(uuid));
+            } catch (Exception e) {
+                plugin.getLogger().severe("[Storage] Failed to save " + uuid + ": " + e.getMessage());
+            }
+            if (evictAfter) cache.remove(uuid);
+        });
+    }
 
-When a player wearing custom armor mines a block, harvests a crop, or catches a fish, there is a chance a reward command fires.
+    @Override
+    public void saveAll() {
+        plugin.getServer().getOnlinePlayers()
+              .forEach(p -> savePlayer(p.getUniqueId(), false));
+    }
 
-### Formula
-
-```
-finalChance = min(maxChance, (pieces * baseChance) * setBonus)
-```
-
-### Default Values (config.yml)
-
-| Setting | Value |
-|---|---|
-| `proc.base-chance` | `0.02` per piece |
-| `proc.max-chance` | `0.15` (15% hard cap) |
-| Set bonus — 1 piece | `1.0×` |
-| Set bonus — 2 pieces | `1.1×` |
-| Set bonus — 3 pieces | `1.25×` |
-
-### Chance Table
-
-| Pieces | Calculation | Final Chance |
-|---|---|---|
-| 1 | (1 × 0.02) × 1.0 | 2.0% |
-| 2 | (2 × 0.02) × 1.1 | 4.4% |
-| 3 | (3 × 0.02) × 1.25 | 7.5% |
-
-### Trigger Events
-
-- **Mining** — any block breakable by pickaxe, axe, or shovel
-- **Fishing** — catching a fish (`CAUGHT_FISH` state)
-- **Crop harvesting** — breaking wheat, carrots, potatoes, beetroots, nether wart, cocoa, or sweet berry bushes
-
-### Reward Command
-
-Configurable in `config.yml` under `proc.command`. Use `%player%` as a placeholder:
-```yaml
-proc:
-  command: "crate give %player% crate_lost physical 1"
-```
-
----
-
-## Configuration
-
-```yaml
-proc:
-  base-chance: 0.02
-  max-chance: 0.15
-  set-bonus:
-    1: 1.0
-    2: 1.1
-    3: 1.25
-  command: "crate give %player% crate_lost physical 1"
-
-armor:
-  chestplate:
-    name: "&bKey Finder Chestplate"
-    material: DIAMOND_CHESTPLATE
-  leggings:
-    name: "&bKey Finder Leggings"
-    material: DIAMOND_LEGGINGS
-  boots:
-    name: "&bKey Finder Boots"
-    material: DIAMOND_BOOTS
-```
+    private File playerFile(UUID uuid) {
+        return new File(dataDir, uuid + ".yml");
+    }
+}

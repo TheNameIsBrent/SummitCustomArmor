@@ -1,186 +1,154 @@
-#!/bin/sh
-#
-# Copyright © 2015-2021 the original authors.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
+package gg.summit.customarmor.db;
 
-##############################################################################
-# Gradle start up script for UN*X
-##############################################################################
+import gg.summit.customarmor.SummitCustomArmor;
+import org.bukkit.configuration.ConfigurationSection;
 
-# Attempt to set APP_HOME
-# Resolve links: $0 may be a link
-app_path=$0
+import javax.sql.DataSource;
+import java.lang.reflect.Constructor;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
-# Need this for daisy-chained symlinks.
-while
-    APP_HOME=${app_path%"${app_path##*/}"}  # leaves a trailing /; empty if no leading path
-    [ -h "$app_path" ]
-do
-    ls=$( ls -ld "$app_path" )
-    link=${ls#*' -> '}
-    case $link in             #(
-      /*)   app_path=$link ;; #( absolute
-      *)    app_path=$APP_HOME$link ;; #( relative
-    esac
-done
+public class DatabaseManager implements StorageBackend {
 
-APP_HOME=$( cd "${APP_HOME:-./}" && pwd -P ) || exit
+    private final SummitCustomArmor plugin;
+    private final PlayerDataCache cache;
+    private final ClassLoader libLoader;
 
-APP_NAME="Gradle"
-APP_BASE_NAME=${0##*/}
+    private AutoCloseable dataSource;
+    private DataSource sqlDataSource;
 
-# Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
-DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
+    private static final String CREATE_TABLE = """
+            CREATE TABLE IF NOT EXISTS custom_armor_data (
+                id    INT AUTO_INCREMENT PRIMARY KEY,
+                uuid  VARCHAR(36) NOT NULL,
+                piece VARCHAR(16) NOT NULL,
+                level INT         NOT NULL,
+                xp    DOUBLE      NOT NULL,
+                owner VARCHAR(36) DEFAULT NULL,
+                UNIQUE KEY unique_player_piece (uuid, piece)
+            )""";
 
-# Use the maximum available, or set MAX_FD != -1 to use that value.
-MAX_FD=maximum
+    private static final String UPSERT =
+            "INSERT INTO custom_armor_data (uuid, piece, level, xp, owner) VALUES (?, ?, ?, ?, ?) " +
+            "ON DUPLICATE KEY UPDATE level = VALUES(level), xp = VALUES(xp), owner = VALUES(owner)";
 
-warn () {
-    echo "$*"
-} >&2
+    private static final String SELECT_PLAYER =
+            "SELECT piece, level, xp, owner FROM custom_armor_data WHERE uuid = ?";
 
-die () {
-    echo
-    echo "$*"
-    echo
-    exit 1
-} >&2
+    public DatabaseManager(SummitCustomArmor plugin, PlayerDataCache cache, ClassLoader libLoader) {
+        this.plugin    = plugin;
+        this.cache     = cache;
+        this.libLoader = libLoader;
+    }
 
-# OS specific support (must be 'true' or 'false').
-cygwin=false
-msys=false
-darwin=false
-nonstop=false
-case "$( uname )" in                #(
-  CYGWIN* )         cygwin=true  ;; #(
-  Darwin* )         darwin=true  ;; #(
-  MSYS* | MINGW* )  msys=true    ;; #(
-  NONSTOP* )        nonstop=true ;;
-esac
+    @Override
+    public void connect() throws Exception {
+        ConfigurationSection db = plugin.getConfig().getConfigurationSection("database");
+        if (db == null) throw new Exception("Missing 'database' section in config.yml");
 
-CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
+        String jdbcUrl = "jdbc:mariadb://"
+                + db.getString("host", "localhost") + ":"
+                + db.getInt("port", 3306) + "/"
+                + db.getString("database", "summit_customarmor");
 
+        Class<?> hikariConfigClass = libLoader.loadClass("com.zaxxer.hikari.HikariConfig");
+        Object hikariConfig = hikariConfigClass.getDeclaredConstructor().newInstance();
 
-# Determine the Java command to use to start the JVM.
-if [ -n "$JAVA_HOME" ] ; then
-    if [ -x "$JAVA_HOME/jre/sh/java" ] ; then
-        # IBM's JDK on AIX uses strange locations for the executables
-        JAVACMD=$JAVA_HOME/jre/sh/java
-    else
-        JAVACMD=$JAVA_HOME/bin/java
-    fi
-    if [ ! -x "$JAVACMD" ] ; then
-        die "ERROR: JAVA_HOME is set to an invalid directory: $JAVA_HOME
+        set(hikariConfig,  "setJdbcUrl",          jdbcUrl);
+        set(hikariConfig,  "setUsername",          db.getString("username", "root"));
+        set(hikariConfig,  "setPassword",          db.getString("password", ""));
+        set(hikariConfig,  "setDriverClassName",   "org.mariadb.jdbc.Driver");
+        setInt(hikariConfig,  "setMaximumPoolSize", 10);
+        setInt(hikariConfig,  "setMinimumIdle",      2);
+        setLong(hikariConfig, "setConnectionTimeout", 10_000L);
+        setLong(hikariConfig, "setIdleTimeout",      600_000L);
+        setLong(hikariConfig, "setMaxLifetime",    1_800_000L);
+        set(hikariConfig,  "setPoolName", "SummitCustomArmor");
 
-Please set the JAVA_HOME variable in your environment to match the
-location of your Java installation."
-    fi
-else
-    JAVACMD=java
-    which java >/dev/null 2>&1 || die "ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH.
+        Class<?> hikariDsClass = libLoader.loadClass("com.zaxxer.hikari.HikariDataSource");
+        Constructor<?> ctor = hikariDsClass.getConstructor(hikariConfigClass);
+        Object ds = ctor.newInstance(hikariConfig);
 
-Please set the JAVA_HOME variable in your environment to match the
-location of your Java installation."
-fi
+        dataSource    = (AutoCloseable) ds;
+        sqlDataSource = (DataSource) ds;
 
-# Increase the maximum file descriptors if we can.
-if ! "$cygwin" && ! "$darwin" && ! "$nonstop" ; then
-    case $MAX_FD in #(
-      max*)
-        # In POSIX sh, ulimit -H is undefined. That's why the result is checked to see if it worked.
-        # shellcheck disable=SC2039,SC3045
-        MAX_FD=$( ulimit -H -n ) ||
-            warn "Could not query maximum file descriptor limit"
-        ;;
-    esac
-    case $MAX_FD in  #(
-      '' | soft) :;; #(
-      *)
-        # In POSIX sh, ulimit -n is undefined. That's why the result is checked to see if it worked.
-        # shellcheck disable=SC2039,SC3045
-        ulimit -n "$MAX_FD" ||
-            warn "Could not set maximum file descriptor limit to $MAX_FD"
-    esac
-fi
+        try (Connection conn = sqlDataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(CREATE_TABLE)) {
+            stmt.execute();
+        }
 
-# Collect all arguments for the java command, stacking in reverse order:
-#   * args from the command line
-#   * the main class name
-#   * -classpath
-#   * -D...appname settings
-#   * --module-path (only if needed)
-#   * DEFAULT_JVM_OPTS, JAVA_OPTS, and GRADLE_OPTS environment variables.
+        plugin.getLogger().info("[Storage] Connected to MariaDB.");
+    }
 
-# For Cygwin or MSYS, switch paths to Windows format before running java
-if "$cygwin" || "$msys" ; then
-    APP_HOME=$( cygpath --path --mixed "$APP_HOME" )
-    CLASSPATH=$( cygpath --path --mixed "$CLASSPATH" )
+    @Override
+    public void disconnect() {
+        if (dataSource != null) {
+            try { dataSource.close(); } catch (Exception ignored) {}
+            plugin.getLogger().info("[Storage] MariaDB connection pool closed.");
+        }
+    }
 
-    JAVACMD=$( cygpath --unix "$JAVACMD" )
+    @Override
+    public CompletableFuture<Void> loadPlayer(UUID uuid) {
+        return CompletableFuture.runAsync(() -> {
+            try (Connection conn = sqlDataSource.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(SELECT_PLAYER)) {
 
-    # Now convert the arguments - kludge to limit ourselves to /bin/sh
-    for arg do
-        if
-            case $arg in                                #(
-              -*)   false ;;                            # don't mess with options #(
-              /?*)  t=${arg#/} t=/${t%%/*}              # looks like a POSIX filepath
-                    [ -e "$t" ] ;;                      #(
-              *)    false ;;
-            esac
-        then
-            arg=$( cygpath --path --ignore --mixed "$arg" )
-        fi
-        # Roll the args list around exactly as many times as the number of
-        # temporary variables.  (They would be set eventually anyway.)
-        # shellcheck disable=SC2059
-        set -- "$@" "$arg"
-    done
-fi
+                stmt.setString(1, uuid.toString());
+                ResultSet rs = stmt.executeQuery();
+                while (rs.next()) {
+                    String ownerStr = rs.getString("owner");
+                    UUID owner = ownerStr != null ? UUID.fromString(ownerStr) : null;
+                    cache.put(uuid, rs.getString("piece"),
+                            new ArmorData(rs.getInt("level"), rs.getInt("xp"), owner));
+                }
+            } catch (Exception e) {
+                plugin.getLogger().severe("[Storage] Load failed for " + uuid + ": " + e.getMessage());
+            }
+        });
+    }
 
+    @Override
+    public CompletableFuture<Void> savePlayer(UUID uuid, boolean evictAfter) {
+        String[] pieces = {"chestplate", "leggings", "boots"};
+        return CompletableFuture.runAsync(() -> {
+            try (Connection conn = sqlDataSource.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(UPSERT)) {
 
-# Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
-set -- \
-        "-Dorg.gradle.appname=$APP_BASE_NAME" \
-        -classpath "$CLASSPATH" \
-        org.gradle.wrapper.GradleWrapperMain \
-        "$@"
+                for (String piece : pieces) {
+                    ArmorData data = cache.get(uuid, piece);
+                    stmt.setString(1, uuid.toString());
+                    stmt.setString(2, piece);
+                    stmt.setInt(3, data.getLevel());
+                    stmt.setDouble(4, data.getXp());
+                    UUID owner = data.getOwner();
+                    stmt.setString(5, owner != null ? owner.toString() : null);
+                    stmt.addBatch();
+                }
+                stmt.executeBatch();
+            } catch (Exception e) {
+                plugin.getLogger().severe("[Storage] Save failed for " + uuid + ": " + e.getMessage());
+            }
+            if (evictAfter) cache.remove(uuid);
+        });
+    }
 
-# Stop when "xargs" is not available.
-if ! command -v xargs >/dev/null 2>&1
-then
-    die "xargs is not available"
-fi
+    @Override
+    public void saveAll() {
+        plugin.getServer().getOnlinePlayers()
+              .forEach(p -> savePlayer(p.getUniqueId(), false));
+    }
 
-# Use "xargs" to parse quoted args.
-#
-# With -n1 it outputs one arg per line, with the quotes and backslashes removed.
-#
-# In Bash we could simply go:
-#
-#   readarray ARGS < <( xargs -n1 <<<"$var" ) &&
-#   set -- "${ARGS[@]}" "$@"
-#
-# but POSIX shell has neither arrays nor command substitution, so instead we
-# post-process each arg (as a line of input to sed) to backslash-escape any
-# temporary variable that is set.
-# shellcheck disable=SC2016
-eval "set -- $(
-        printf '%s\n' "$DEFAULT_JVM_OPTS $JAVA_OPTS $GRADLE_OPTS" |
-        xargs -n1 |
-        sed ' s~[^a-zA-Z0-9/.-]~\\&~g; ' |
-        tr '\n' ' '
-    )" '"$@"'
-
-exec "$JAVACMD" "$@"
+    private void set(Object obj, String method, String value) throws Exception {
+        obj.getClass().getMethod(method, String.class).invoke(obj, value);
+    }
+    private void setInt(Object obj, String method, int value) throws Exception {
+        obj.getClass().getMethod(method, int.class).invoke(obj, value);
+    }
+    private void setLong(Object obj, String method, long value) throws Exception {
+        obj.getClass().getMethod(method, long.class).invoke(obj, value);
+    }
+}
