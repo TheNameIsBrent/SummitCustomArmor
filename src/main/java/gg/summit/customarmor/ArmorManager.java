@@ -67,6 +67,7 @@ public class ArmorManager {
             String hex = section.getString("color", "#FFFFFF").replace("#", "");
             try {
                 leatherMeta.setColor(Color.fromRGB(Integer.parseInt(hex, 16)));
+                leatherMeta.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_DYE);
             } catch (NumberFormatException e) {
                 plugin.getLogger().warning("Invalid color '" + hex + "' for piece: " + piece);
             }
