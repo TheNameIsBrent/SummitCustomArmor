@@ -18,6 +18,7 @@ public final class SummitCustomArmor extends JavaPlugin {
     private StorageBackend  storage;
     private PlayerDataCache dataCache;
     private UnbindScrollManager unbindScrollManager;
+    private MessageUtil     messageUtil;
 
     private static final long SAVE_INTERVAL_TICKS = 6000L;
 
@@ -27,10 +28,11 @@ public final class SummitCustomArmor extends JavaPlugin {
         saveDefaultConfig();
 
         // Core managers
-        armorManager = new ArmorManager(this);
-        levelManager = new LevelManager(this, armorManager);
-        procManager  = new ProcManager(this, armorManager);
+        armorManager        = new ArmorManager(this);
+        levelManager        = new LevelManager(this, armorManager);
+        procManager         = new ProcManager(this, armorManager);
         unbindScrollManager = new UnbindScrollManager(this);
+        messageUtil         = new MessageUtil(this);
         armorManager.setLevelManager(levelManager);
 
         dataCache = new PlayerDataCache();
@@ -106,4 +108,5 @@ public final class SummitCustomArmor extends JavaPlugin {
     public StorageBackend       getStorage()             { return storage; }
     public PlayerDataCache      getDataCache()           { return dataCache; }
     public UnbindScrollManager  getUnbindScrollManager() { return unbindScrollManager; }
+    public MessageUtil          getMessageUtil()         { return messageUtil; }
 }

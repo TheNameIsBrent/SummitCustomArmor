@@ -107,8 +107,10 @@ public class ProcManager {
         if (!selected.message().isBlank()) {
             String resolved = selected.message()
                     .replace("%key%",    selected.displayName())
-                    .replace("%player%", player.getName());
-            player.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(resolved));
+                    .replace("%player%", player.getName())
+                    .replace("%prefix%", plugin.getMessageUtil() != null
+                            ? plugin.getMessageUtil().getPrefix() : "");
+            player.sendMessage(TextUtil.parseMessage(resolved));
         }
 
         for (String command : selected.commands()) {

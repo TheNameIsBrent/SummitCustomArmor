@@ -2,8 +2,7 @@ package gg.summit.customarmor;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.TextDecoration;
-import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
-import org.bukkit.Color;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;import org.bukkit.Color;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.configuration.ConfigurationSection;
@@ -60,11 +59,7 @@ public class ArmorManager {
         ItemStack item = new ItemStack(material);
         ItemMeta meta  = item.getItemMeta();
 
-        meta.displayName(
-            LegacyComponentSerializer.legacyAmpersand()
-                .deserialize(displayName)
-                .decoration(TextDecoration.ITALIC, false)
-        );
+        meta.displayName(TextUtil.parse(displayName));
 
         meta.getPersistentDataContainer().set(CUSTOM_ARMOR_KEY, PersistentDataType.STRING, piece);
 

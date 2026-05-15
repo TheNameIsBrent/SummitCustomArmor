@@ -63,6 +63,8 @@ public class ProcListener implements Listener {
     /** Mining — pickaxe required, block must be mineable by pickaxe. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBlockBreak(BlockBreakEvent event) {
+        if (!plugin.getConfig().getBoolean("leveling.enabled.mining", true)) return;
+
         Player player = event.getPlayer();
         ItemStack held = player.getInventory().getItemInMainHand();
         if (!PICKAXES.contains(held.getType())) return;
@@ -77,6 +79,8 @@ public class ProcListener implements Listener {
     /** Crop harvesting — hoe hits a fully-grown crop, block destruction not required. */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onCropHit(PlayerInteractEvent event) {
+        if (!plugin.getConfig().getBoolean("leveling.enabled.farming", true)) return;
+
         if (event.getHand() != EquipmentSlot.HAND) return;
 
         Action action = event.getAction();
@@ -100,6 +104,7 @@ public class ProcListener implements Listener {
     /** Fishing */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onFish(PlayerFishEvent event) {
+        if (!plugin.getConfig().getBoolean("leveling.enabled.fishing", true)) return;
         if (event.getState() != PlayerFishEvent.State.CAUGHT_FISH) return;
 
         Player player = event.getPlayer();

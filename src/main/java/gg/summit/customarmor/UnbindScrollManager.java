@@ -36,17 +36,11 @@ public class UnbindScrollManager {
         ItemStack item = new ItemStack(material);
         ItemMeta meta  = item.getItemMeta();
 
-        meta.displayName(
-            LegacyComponentSerializer.legacyAmpersand()
-                .deserialize(displayName)
-                .decoration(TextDecoration.ITALIC, false)
-        );
+        meta.displayName(TextUtil.parse(displayName));
 
         List<Component> lore = new ArrayList<>();
         for (String line : loreLines) {
-            lore.add(LegacyComponentSerializer.legacyAmpersand()
-                .deserialize(line)
-                .decoration(TextDecoration.ITALIC, false));
+            lore.add(TextUtil.parse(line));
         }
         if (!lore.isEmpty()) meta.lore(lore);
 

@@ -4,8 +4,7 @@ import gg.summit.customarmor.db.ArmorData;
 import gg.summit.customarmor.db.PlayerDataCache;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.TextDecoration;
-import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
-import org.bukkit.NamespacedKey;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -225,13 +224,11 @@ public class LevelManager {
                     .replace("%max_level%",   maxStr)
                     .replace("%xp%",          xpStr)
                     .replace("%xp_required%", reqStr)
-                    .replace("%owner%",       ownerName);
+                    .replace("%owner%",       ownerName)
+                    .replace("%prefix%",      plugin.getMessageUtil() != null
+                            ? plugin.getMessageUtil().getPrefix() : "");
 
-            lore.add(resolved.isEmpty()
-                ? Component.empty()
-                : LegacyComponentSerializer.legacyAmpersand()
-                    .deserialize(resolved)
-                    .decoration(TextDecoration.ITALIC, false));
+            lore.add(resolved.isEmpty() ? Component.empty() : TextUtil.parse(resolved));
         }
 
         meta.lore(lore);

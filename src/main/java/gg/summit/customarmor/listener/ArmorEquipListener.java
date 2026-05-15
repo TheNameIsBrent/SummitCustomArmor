@@ -4,9 +4,6 @@ import gg.summit.customarmor.ArmorManager;
 import gg.summit.customarmor.SummitCustomArmor;
 import gg.summit.customarmor.UnbindScrollManager;
 import gg.summit.customarmor.db.ArmorData;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
@@ -64,7 +61,9 @@ public class ArmorEquipListener implements Listener {
         event.setCancelled(true);
 
         if (armorManager.getOwner(target) == null) {
-            player.sendMessage(Component.text("This armor piece is not soulbound.", NamedTextColor.YELLOW));
+            plugin.getMessageUtil().sendRaw(player,
+                    plugin.getConfig().getString("messages.not-soulbound",
+                            "%prefix% &7This armor piece is not soulbound."));
             return;
         }
 
@@ -89,7 +88,9 @@ public class ArmorEquipListener implements Listener {
             event.getView().setCursor(null);
         }
 
-        player.sendMessage(Component.text("Soulbound removed from armor piece.", NamedTextColor.GREEN));
+        plugin.getMessageUtil().sendRaw(player,
+                plugin.getConfig().getString("messages.unbound",
+                        "%prefix% &aSoulbound removed from armor piece."));
     }
 
     // =========================================================================
@@ -221,12 +222,12 @@ public class ArmorEquipListener implements Listener {
         if (pieces <= 0) return;
         String raw = plugin.getConfig().getString("messages.equip-" + pieces, "");
         if (raw.isBlank()) return;
-        player.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(raw));
+        plugin.getMessageUtil().sendRaw(player, raw);
     }
 
     private void sendSoulboundMessage(Player player) {
         String msg = plugin.getConfig().getString("messages.soulbound-blocked",
-                "&cThis armor is soulbound to another player.");
-        player.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(msg));
+                "%prefix% &cThis armor is soulbound to another player.");
+        plugin.getMessageUtil().sendRaw(player, msg);
     }
 }
